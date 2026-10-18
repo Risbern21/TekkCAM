@@ -1,0 +1,220 @@
+use eframe::egui;
+use crate::app::TekkCamApp;
+use crate::workspace::layer::{Layer, LayerKind};
+use crate::cam::operations::OperationKind;
+
+const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(20, 20, 28);
+const HEADER_COLOR: egui::Color32 = egui::Color32::from_rgb(140, 160, 220);
+const SELECTED_BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 120, 200, 60);
+const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
+
+pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
+    egui::SidePanel::left("sidebar")
+        .resizable(true)
+        .default_width(240.0)
+        .min_width(180.0)
+        .max_width(360.0)
+        .frame(
+            egui::Frame::new()
+                .fill(PANEL_BG)
+                .inner_margin(egui::Margin::same(8)),
+        )
+        .show(ctx, |ui| {
+            // ── Objects / Layers section ──────────────────────────────────
+            section_header(ui, "OBJECTS");
+            ui.add_space(4.0);
+
+            // Add layer button
+            ui.horizontal(|ui| {
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 24.0],
+                        egui::Button::new(
+                            egui::RichText::new("+ Add Layer").color(ACCENT),
+                        )
+                        .frame(true),
+                    )
+                    .clicked()
+                {
+                    app.project.layers.push(Layer::new_placeholder());
+                }
+            });
+            ui.add_space(4.0);
+
+            // Layer list — extract display info first to avoid borrow conflicts
+            let layer_count = app.project.layers.len();
+            let layer_display: Vec<(bool, &'static str, String, bool)> = (0..layer_count)
+                .map(|i| {
+                    let l = &app.project.layers[i];
+                    let selected = app.ui_state.selected_layer == Some(i);
+                    let kind_icon: &'static str = match l.kind {
+                        LayerKind::Gerber => "🟢",
+                        LayerKind::Drill => "⚫",
+                        LayerKind::Dxf => "🔵",
+                        LayerKind::Svg => "🟠",
+                        LayerKind::Gcode => "⚙",
+                        LayerKind::Placeholder => "📄",
+                    };
+                    let vis_icon: &'static str = if l.visible { "👁" } else { "🚫" };
+                    let label = format!("{kind_icon} {}", l.name);
+                    (selected, vis_icon, label, l.visible)
+                })
+                .collect();
+
+            let mut toggle_vis: Option<usize> = None;
+            let mut select_layer: Option<usize> = None;
+
+            for (i, (is_selected, vis_icon, label, _vis)) in layer_display.iter().enumerate() {
+                let row_bg = if *is_selected { SELECTED_BG } else { egui::Color32::TRANSPARENT };
+
+                let response = egui::Frame::new()
+                    .fill(row_bg)
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(6, 3))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui.small_button(*vis_icon).clicked() {
+                                toggle_vis = Some(i);
+                            }
+                            ui.label(egui::RichText::new(label).size(13.0));
+                        });
+                    })
+                    .response;
+
+                if response.interact(egui::Sense::click()).clicked() {
+                    select_layer = Some(i);
+                }
+            }
+
+            // Apply deferred mutations
+            if let Some(i) = toggle_vis {
+                app.project.layers[i].visible = !app.project.layers[i].visible;
+            }
+            if let Some(i) = select_layer {
+                app.ui_state.selected_layer = Some(i);
+            }
+
+            if layer_count == 0 {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("No layers loaded.\nFile → Open to import a file.")
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(100, 100, 120)),
+                );
+            }
+
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+
+            // ── CAM Operations section ────────────────────────────────────
+            section_header(ui, "CAM OPERATIONS");
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                if ui
+                    .add_sized(
+                        [ui.available_width(), 24.0],
+                        egui::Button::new(
+                            egui::RichText::new("+ Add Operation").color(ACCENT),
+                        )
+                        .frame(true),
+                    )
+                    .clicked()
+                {
+                    app.project.operations.push(crate::cam::operations::Operation::placeholder());
+                }
+            });
+            ui.add_space(4.0);
+
+            let op_count = app.project.operations.len();
+
+            // Extract display data for operations
+            let op_display: Vec<(bool, &'static str, String, bool)> = (0..op_count)
+                .map(|i| {
+                    let op = &app.project.operations[i];
+                    let selected = app.ui_state.selected_operation == Some(i);
+                    let icon: &'static str = match op.kind {
+                        OperationKind::Isolation => "〰",
+                        OperationKind::Pocket => "⬡",
+                        OperationKind::Drill => "⊙",
+                        OperationKind::Contour => "▭",
+                        OperationKind::Placeholder => "📋",
+                    };
+                    (selected, icon, op.name.clone(), op.generated)
+                })
+                .collect();
+
+            let mut select_op: Option<usize> = None;
+
+            for (i, (is_selected, icon, name, generated)) in op_display.iter().enumerate() {
+                let row_bg = if *is_selected { SELECTED_BG } else { egui::Color32::TRANSPARENT };
+
+                let response = egui::Frame::new()
+                    .fill(row_bg)
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::symmetric(6, 3))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let state_color = if *generated {
+                                egui::Color32::from_rgb(60, 200, 100)
+                            } else {
+                                egui::Color32::from_rgb(180, 160, 60)
+                            };
+                            ui.label(egui::RichText::new(format!("{icon} {name}")).size(13.0));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    let state_text = if *generated { "✓" } else { "…" };
+                                    ui.label(
+                                        egui::RichText::new(state_text)
+                                            .size(11.0)
+                                            .color(state_color),
+                                    );
+                                },
+                            );
+                        });
+                    })
+                    .response;
+
+                if response.interact(egui::Sense::click()).clicked() {
+                    select_op = Some(i);
+                }
+            }
+
+            if let Some(i) = select_op {
+                app.ui_state.selected_operation = Some(i);
+            }
+
+            if op_count == 0 {
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("No operations yet.\nUse CAM menu to add one.")
+                        .size(11.0)
+                        .color(egui::Color32::from_rgb(100, 100, 120)),
+                );
+            }
+
+            // ── Bottom: Units display ─────────────────────────────────────
+            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("Units:")
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(120, 120, 140)),
+                    );
+                    ui.label(egui::RichText::new("mm").size(11.0).color(ACCENT));
+                });
+            });
+        });
+}
+
+fn section_header(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .size(10.0)
+            .color(HEADER_COLOR)
+            .strong(),
+    );
+}
