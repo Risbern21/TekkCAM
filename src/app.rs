@@ -1,8 +1,9 @@
 use eframe::egui;
+use std::sync::Arc;
 use crate::{
     ui::{toolbar, sidebar, properties, viewport, console},
     workspace::project::Project,
-    renderer::{ViewportRenderer, camera::Camera2D},
+    renderer::{ViewportRenderer, camera::Camera2D, pipeline::Scene},
 };
 
 /// Top-level application state
@@ -14,6 +15,11 @@ pub struct TekkCamApp {
     /// 2D camera: lives in app state so UI can read/write it,
     /// then copied into the wgpu callback each frame.
     pub camera: Camera2D,
+    /// CPU snapshot of visible geometry; rebuilt when layers change
+    pub scene: Arc<Scene>,
+    /// (layer id, visible) signature the current `scene` was built from
+    pub scene_sig: Vec<(u64, bool)>,
+    pub scene_revision: u64,
 }
 
 /// Transient UI state not serialised to disk
@@ -26,6 +32,10 @@ pub struct UiState {
     pub status_message: String,
     pub machine_connected: bool,
     pub show_grid: bool,
+    /// Set to frame all geometry on the next viewport pass
+    pub request_fit: bool,
+    /// Last known viewport rect size (points)
+    pub viewport_size: egui::Vec2,
 }
 
 impl Default for UiState {
@@ -42,6 +52,8 @@ impl Default for UiState {
             status_message: "Ready".into(),
             machine_connected: false,
             show_grid: true,
+            request_fit: false,
+            viewport_size: egui::vec2(800.0, 600.0),
         }
     }
 }
@@ -82,12 +94,50 @@ impl TekkCamApp {
             project: Project::default(),
             ui_state: UiState::default(),
             camera: Camera2D::default(),
+            scene: Arc::new(Scene::default()),
+            scene_sig: Vec::new(),
+            scene_revision: 0,
+        }
+    }
+
+    /// Load a design file as a new layer, reporting progress in the console.
+    pub fn import_file(&mut self, path: &std::path::Path) {
+        let path_str = path.to_string_lossy().to_string();
+        match crate::importers::load_layer(&path_str, self.project.layers.len()) {
+            Ok((layer, notes)) => {
+                let log = &mut self.ui_state.console_log;
+                log.push(format!(
+                    "✔ Imported {} ({:?}): {} triangles, {} lines",
+                    layer.name,
+                    layer.kind,
+                    layer.geometry.triangles.len() / 3,
+                    layer.geometry.lines.len() / 2,
+                ));
+                for n in notes {
+                    log.push(format!("  ⚠ {n}"));
+                }
+                self.ui_state.status_message = format!("Loaded {}", layer.name);
+                self.project.layers.push(layer);
+                self.ui_state.selected_layer = Some(self.project.layers.len() - 1);
+                self.ui_state.request_fit = true;
+            }
+            Err(e) => {
+                self.ui_state.console_log.push(format!("✖ Failed to import {path_str}: {e}"));
+                self.ui_state.status_message = "Import failed".into();
+            }
         }
     }
 }
 
 impl eframe::App for TekkCamApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // ── Drag & drop file import ──────────────────────────────────────────
+        let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
+            i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect()
+        });
+        for p in dropped {
+            self.import_file(&p);
+        }
         // ── Top toolbar ──────────────────────────────────────────────────────
         toolbar::show(ctx, self);
 

@@ -108,10 +108,10 @@ impl GridRenderer {
         _device: &wgpu::Device,
         queue: &wgpu::Queue,
         camera: &Camera2D,
-        screen: &ScreenDescriptor,
+        viewport_size: [f32; 2],
     ) {
-        let vp_w = screen.size_in_pixels[0] as f32;
-        let vp_h = screen.size_in_pixels[1] as f32;
+        let vp_w = viewport_size[0].max(1.0);
+        let vp_h = viewport_size[1].max(1.0);
 
         let mat = camera.view_proj_matrix((vp_w, vp_h));
         let cols = mat.to_cols_array_2d();

@@ -66,9 +66,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let pan_x = -tx / sx;
     let pan_y = -ty / sy;
 
-    // World coords
-    let wx = screen_pos.x / u.zoom + pan_x;
-    let wy = -(screen_pos.y / u.zoom) + pan_y;
+    // World coords: pan is the world point at the viewport centre.
+    // screen_pos is derived from NDC, so its Y already points up.
+    let centred = screen_pos - u.viewport_size * 0.5;
+    let wx = centred.x / u.zoom + pan_x;
+    let wy = centred.y / u.zoom + pan_y;
 
     // Adaptive line width (thinner at low zoom)
     let px_per_mm = u.zoom;
@@ -87,7 +89,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     // Major grid lines (10 mm spacing)
     let mlx = grid_line(wx, u.major_spacing, major_line_w);
     let mly = grid_line(wy, u.major_spacing, major_line_w);
-    let major_alpha = max(mlx, mly) * 0.55;
+    let major_fade = clamp((px_per_mm * u.major_spacing - 3.0) / 10.0, 0.0, 1.0);
+    let major_alpha = max(mlx, mly) * 0.55 * major_fade;
 
     // Origin axes (stronger)
     let origin_w = 2.0 / px_per_mm;

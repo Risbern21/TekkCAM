@@ -63,10 +63,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
                 ui.menu_button("View", |ui| {
                     if ui.button("🔲  Fit to Window").clicked() {
-                        app.ui_state.console_log.push("[TODO] Fit to window".into());
+                        app.ui_state.request_fit = true;
                         ui.close_menu();
                     }
                     if ui.button("⊞  Toggle Grid").clicked() {
+                        app.ui_state.show_grid = !app.ui_state.show_grid;
                         ui.close_menu();
                     }
                 });
@@ -148,7 +149,27 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 }
 
 fn open_file(app: &mut TekkCamApp) {
-    // TODO: integrate rfd file dialog and parse result
-    app.ui_state.console_log.push("[TODO] Open file dialog (rfd)".into());
-    app.ui_state.status_message = "Open file dialog not yet implemented".into();
+    let files = rfd::FileDialog::new()
+        .set_title("Open design file(s)")
+        .add_filter(
+            "All supported",
+            &[
+                "gbr", "ger", "gtl", "gbl", "gts", "gbs", "gtp", "gbp", "gto", "gbo", "gko",
+                "gm1", "drl", "exc", "xln", "dxf", "svg", "txt",
+            ],
+        )
+        .add_filter("Gerber", &["gbr", "ger", "gtl", "gbl", "gts", "gbs", "gtp", "gbp", "gto", "gbo", "gko", "gm1"])
+        .add_filter("Excellon drill", &["drl", "exc", "xln", "txt"])
+        .add_filter("DXF", &["dxf"])
+        .add_filter("SVG", &["svg"])
+        .pick_files();
+
+    match files {
+        Some(paths) => {
+            for p in paths {
+                app.import_file(&p);
+            }
+        }
+        None => app.ui_state.status_message = "Open cancelled".into(),
+    }
 }
