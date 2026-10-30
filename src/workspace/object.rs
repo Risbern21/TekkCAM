@@ -142,7 +142,9 @@ impl Geometry {
     pub fn add_polygon(&mut self, pts: &[P]) {
         let mut v: Vec<P> = Vec::with_capacity(pts.len());
         for p in pts {
-            if v.last().map_or(true, |l| (l[0] - p[0]).abs() > 1e-12 || (l[1] - p[1]).abs() > 1e-12) {
+            if v.last().map_or(true, |l| {
+                (l[0] - p[0]).abs() > 1e-12 || (l[1] - p[1]).abs() > 1e-12
+            }) {
                 v.push(*p);
             }
         }

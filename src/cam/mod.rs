@@ -1,3 +1,3 @@
 pub mod operations;
-pub mod toolpath;
 pub mod tool;
+pub mod toolpath;

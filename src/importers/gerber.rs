@@ -197,22 +197,34 @@ impl<'a> Ev<'a> {
                 while self.pos < self.s.len() && self.s[self.pos].is_ascii_digit() {
                     self.pos += 1;
                 }
-                let n: u32 = std::str::from_utf8(&self.s[st..self.pos]).unwrap_or("0").parse().unwrap_or(0);
+                let n: u32 = std::str::from_utf8(&self.s[st..self.pos])
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0);
                 *self.vars.get(&n).unwrap_or(&0.0)
             }
             _ => {
                 let st = self.pos;
-                while self.pos < self.s.len() && (self.s[self.pos].is_ascii_digit() || self.s[self.pos] == b'.') {
+                while self.pos < self.s.len()
+                    && (self.s[self.pos].is_ascii_digit() || self.s[self.pos] == b'.')
+                {
                     self.pos += 1;
                 }
-                std::str::from_utf8(&self.s[st..self.pos]).unwrap_or("0").parse().unwrap_or(0.0)
+                std::str::from_utf8(&self.s[st..self.pos])
+                    .unwrap_or("0")
+                    .parse()
+                    .unwrap_or(0.0)
             }
         }
     }
 }
 
 fn eval(s: &str, vars: &HashMap<u32, f64>) -> f64 {
-    let mut e = Ev { s: s.as_bytes(), pos: 0, vars };
+    let mut e = Ev {
+        s: s.as_bytes(),
+        pos: 0,
+        vars,
+    };
     e.expr()
 }
 
@@ -308,16 +320,21 @@ impl Parser {
         } else if first.starts_with("AB") {
             self.unsupported.push("Aperture blocks (AB)".into());
         } else if first.starts_with("LM") || first.starts_with("LR") || first.starts_with("LS") {
-            self.unsupported.push("Aperture transforms (LM/LR/LS)".into());
+            self.unsupported
+                .push("Aperture transforms (LM/LR/LS)".into());
         }
         // TF/TA/TD/IP/OF etc. are ignored silently.
     }
 
     fn define_aperture(&mut self, blk: &str) {
         let rest = &blk[2..];
-        let Some(rest) = rest.strip_prefix('D') else { return };
+        let Some(rest) = rest.strip_prefix('D') else {
+            return;
+        };
         let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-        let Ok(code) = digits.parse::<i32>() else { return };
+        let Ok(code) = digits.parse::<i32>() else {
+            return;
+        };
         let rest = &rest[digits.len()..];
         let (name, params_str) = match rest.split_once(',') {
             Some((n, p)) => (n, p),
@@ -355,14 +372,21 @@ impl Parser {
                         [r * a.cos(), r * a.sin()]
                     })
                     .collect();
-                Aperture { polys: vec![poly], stroke_width: p(0) * us }
+                Aperture {
+                    polys: vec![poly],
+                    stroke_width: p(0) * us,
+                }
             }
             other => {
                 if let Some(m) = self.macros.get(other).cloned() {
                     let polys = self.macro_polys(&m, &params);
-                    Aperture { polys, stroke_width: 0.0 }
+                    Aperture {
+                        polys,
+                        stroke_width: 0.0,
+                    }
                 } else {
-                    self.notes.push(format!("Unknown aperture/macro '{other}' (D{code})"));
+                    self.notes
+                        .push(format!("Unknown aperture/macro '{other}' (D{code})"));
                     return;
                 }
             }
@@ -393,7 +417,9 @@ impl Parser {
             if code.starts_with('0') && code.len() > 1 {
                 continue; // comment ("0 text")
             }
-            let Ok(code) = code.parse::<i32>() else { continue };
+            let Ok(code) = code.parse::<i32>() else {
+                continue;
+            };
             let v: Vec<f64> = parts.map(|s| eval(s.trim(), &vars)).collect();
             let g = |i: usize| v.get(i).copied().unwrap_or(0.0);
             if matches!(code, 1 | 20 | 21 | 4 | 5) && g(0) == 0.0 {
@@ -422,7 +448,12 @@ impl Parser {
                 }
                 21 => {
                     let (hw, hh, cx, cy) = (g(1) * 0.5, g(2) * 0.5, g(3), g(4));
-                    poly = vec![[cx - hw, cy - hh], [cx + hw, cy - hh], [cx + hw, cy + hh], [cx - hw, cy + hh]];
+                    poly = vec![
+                        [cx - hw, cy - hh],
+                        [cx + hw, cy - hh],
+                        [cx + hw, cy + hh],
+                        [cx - hw, cy + hh],
+                    ];
                     rotation = g(5);
                 }
                 4 => {
@@ -442,7 +473,8 @@ impl Parser {
                     rotation = g(5);
                 }
                 6 | 7 => {
-                    self.unsupported.push("Moire/Thermal macro primitives".into());
+                    self.unsupported
+                        .push("Moire/Thermal macro primitives".into());
                     continue;
                 }
                 _ => continue,
@@ -578,7 +610,10 @@ impl Parser {
             }
             self.contour.extend_from_slice(&pts[1..]);
         } else if self.dark {
-            let w = self.apertures.get(&self.cur_ap).map_or(0.0, |a| a.stroke_width);
+            let w = self
+                .apertures
+                .get(&self.cur_ap)
+                .map_or(0.0, |a| a.stroke_width);
             self.geom.add_stroke(&pts, w);
         }
         self.cur = np;
@@ -632,5 +667,8 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
     for u in &p.unsupported {
         notes.push(format!("Unsupported Gerber feature ignored: {u}"));
     }
-    Ok(ParseOutput { geometry: p.geom, notes })
+    Ok(ParseOutput {
+        geometry: p.geom,
+        notes,
+    })
 }

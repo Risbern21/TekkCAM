@@ -1,7 +1,7 @@
 // importers/mod.rs — file format parsers (Phase 2)
-pub mod gerber;
-pub mod excellon;
 pub mod dxf;
+pub mod excellon;
+pub mod gerber;
 pub mod svg;
 
 use crate::workspace::layer::{Layer, LayerKind};
@@ -81,10 +81,20 @@ mod tests {
     fn ear_clip_concave_area() {
         let mut g = Geometry::default();
         // L-shape, area 3
-        g.add_polygon(&[[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [1.0, 1.0], [1.0, 2.0], [0.0, 2.0]]);
+        g.add_polygon(&[
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [2.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 2.0],
+            [0.0, 2.0],
+        ]);
         let mut area = 0.0_f32;
         for t in g.triangles.chunks(3) {
-            area += ((t[1][0] - t[0][0]) * (t[2][1] - t[0][1]) - (t[1][1] - t[0][1]) * (t[2][0] - t[0][0])).abs() * 0.5;
+            area += ((t[1][0] - t[0][0]) * (t[2][1] - t[0][1])
+                - (t[1][1] - t[0][1]) * (t[2][0] - t[0][0]))
+                .abs()
+                * 0.5;
         }
         assert!((area - 3.0).abs() < 1e-4, "area {area}");
     }

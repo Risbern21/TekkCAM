@@ -1,5 +1,5 @@
-use eframe::egui;
 use crate::app::TekkCamApp;
+use eframe::egui;
 
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
 const SUCCESS: egui::Color32 = egui::Color32::from_rgb(60, 200, 100);
@@ -28,7 +28,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 // ── File menu ─────────────────────────────────────────────
                 ui.menu_button("File", |ui| {
                     if ui.button("📂  Open File…").clicked() {
-                        open_file(app);
+                        app.request_open_dialog(ctx);
                         ui.close_menu();
                     }
                     if ui.button("💾  Save Project").clicked() {
@@ -36,7 +36,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         ui.close_menu();
                     }
                     if ui.button("📤  Export G-code…").clicked() {
-                        app.ui_state.console_log.push("[TODO] Export G-code".into());
+                        crate::ui::console::export_gcode(ctx, app);
                         ui.close_menu();
                     }
                     ui.separator();
@@ -74,43 +74,72 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
                 ui.menu_button("CAM", |ui| {
                     if ui.button("〰  Isolation Routing").clicked() {
-                        app.ui_state.console_log.push("[TODO] Add isolation routing op".into());
+                        app.project
+                            .operations
+                            .push(crate::cam::operations::Operation::isolation());
+                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
                         ui.close_menu();
                     }
                     if ui.button("⬡  Pocket Milling").clicked() {
-                        app.ui_state.console_log.push("[TODO] Add pocket op".into());
+                        app.project
+                            .operations
+                            .push(crate::cam::operations::Operation::pocket());
+                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
                         ui.close_menu();
                     }
                     if ui.button("⊙  Drilling").clicked() {
-                        app.ui_state.console_log.push("[TODO] Add drill op".into());
+                        app.project
+                            .operations
+                            .push(crate::cam::operations::Operation::drill());
+                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
                         ui.close_menu();
                     }
                     if ui.button("▭  Contour Cut").clicked() {
-                        app.ui_state.console_log.push("[TODO] Add contour op".into());
+                        app.project
+                            .operations
+                            .push(crate::cam::operations::Operation::contour());
+                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
                         ui.close_menu();
                     }
                     ui.separator();
                     if ui.button("▶  Generate All").clicked() {
-                        app.ui_state.console_log.push("[TODO] Generate toolpaths".into());
+                        for i in 0..app.project.operations.len() {
+                            app.generate_operation(i);
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("≡  Generate G-code").clicked() {
+                        app.generate_gcode();
                         ui.close_menu();
                     }
                 });
 
                 ui.menu_button("Machine", |ui| {
                     if ui.button("🔌  Connect…").clicked() {
-                        app.ui_state.console_log.push("[TODO] Open serial connection dialog".into());
+                        app.refresh_machine_ports();
+                        app.ui_state.show_machine_dialog = true;
+                        ui.close_menu();
+                    }
+                    if app.ui_state.machine_connected && ui.button("🎛  Controls / DRO").clicked()
+                    {
+                        app.ui_state.show_machine_controls = true;
                         ui.close_menu();
                     }
                     if ui.button("▶  Run Job").clicked() {
-                        app.ui_state.console_log.push("[TODO] Start job".into());
+                        app.start_machine_job();
                         ui.close_menu();
                     }
                     if ui.button("⏹  Stop").clicked() {
-                        app.ui_state.console_log.push("[TODO] Stop job".into());
+                        if let Some(machine) = &app.machine {
+                            machine.stop();
+                        }
+                        app.ui_state.job_progress = None;
                         ui.close_menu();
                     }
                     if ui.button("🏠  Home").clicked() {
-                        app.ui_state.console_log.push("[TODO] Home machine".into());
+                        if let Some(machine) = &app.machine {
+                            machine.send_line("$H".into());
+                        }
                         ui.close_menu();
                     }
                 });
@@ -127,14 +156,20 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     if ui
                         .add(
                             egui::Button::new(
-                                egui::RichText::new(badge_text).color(badge_color).size(12.0),
+                                egui::RichText::new(badge_text)
+                                    .color(badge_color)
+                                    .size(12.0),
                             )
                             .frame(true),
                         )
                         .clicked()
                     {
-                        // TODO: open connection dialog
-                        app.ui_state.console_log.push("[TODO] Connect dialog".into());
+                        if app.ui_state.machine_connected {
+                            app.ui_state.show_machine_controls = true;
+                        } else {
+                            app.refresh_machine_ports();
+                            app.ui_state.show_machine_dialog = true;
+                        }
                     }
 
                     ui.add_space(8.0);
@@ -146,30 +181,4 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 });
             });
         });
-}
-
-fn open_file(app: &mut TekkCamApp) {
-    let files = rfd::FileDialog::new()
-        .set_title("Open design file(s)")
-        .add_filter(
-            "All supported",
-            &[
-                "gbr", "ger", "gtl", "gbl", "gts", "gbs", "gtp", "gbp", "gto", "gbo", "gko",
-                "gm1", "drl", "exc", "xln", "dxf", "svg", "txt",
-            ],
-        )
-        .add_filter("Gerber", &["gbr", "ger", "gtl", "gbl", "gts", "gbs", "gtp", "gbp", "gto", "gbo", "gko", "gm1"])
-        .add_filter("Excellon drill", &["drl", "exc", "xln", "txt"])
-        .add_filter("DXF", &["dxf"])
-        .add_filter("SVG", &["svg"])
-        .pick_files();
-
-    match files {
-        Some(paths) => {
-            for p in paths {
-                app.import_file(&p);
-            }
-        }
-        None => app.ui_state.status_message = "Open cancelled".into(),
-    }
 }

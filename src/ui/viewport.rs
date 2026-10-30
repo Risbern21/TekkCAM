@@ -1,8 +1,8 @@
-use eframe::egui;
 use crate::app::TekkCamApp;
-use std::sync::Arc;
 use crate::renderer::pipeline::Scene;
 use crate::renderer::ViewportCallback;
+use eframe::egui;
+use std::sync::Arc;
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     egui::CentralPanel::default()
@@ -25,6 +25,19 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
             // Overlay coordinate display (top-left of viewport)
             overlay_info(ui, app, rect);
+            if let Some(position) = crate::ui::console::simulation_position(app) {
+                let screen = egui::pos2(
+                    rect.center().x + (position[0] as f32 - app.camera.pan.x) * app.camera.zoom,
+                    rect.center().y - (position[1] as f32 - app.camera.pan.y) * app.camera.zoom,
+                );
+                let painter = ui.painter_at(rect);
+                painter.circle_filled(screen, 5.0, egui::Color32::from_rgb(255, 75, 55));
+                painter.circle_stroke(
+                    screen,
+                    8.0,
+                    egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
+                );
+            }
 
             // Paint the wgpu viewport via egui_wgpu::Callback
             let callback = egui_wgpu::Callback::new_paint_callback(
@@ -42,10 +55,32 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
 /// Rebuild `app.scene` when the set of visible layers changes.
 fn sync_scene(app: &mut TekkCamApp) {
-    let sig: Vec<(u64, bool)> = app.project.layers.iter().map(|l| (l.id, l.visible)).collect();
+    let sig: Vec<(u64, bool, u64)> = app
+        .project
+        .layers
+        .iter()
+        .map(|l| {
+            (
+                l.id,
+                l.visible,
+                l.geometry.lines.len() as u64 + l.geometry.triangles.len() as u64,
+            )
+        })
+        .chain(
+            app.project
+                .operations
+                .iter()
+                .enumerate()
+                .map(|(i, o)| (i as u64, o.generated, o.toolpath.moves.len() as u64)),
+        )
+        .collect();
     if sig != app.scene_sig {
         app.scene_revision += 1;
-        app.scene = Arc::new(Scene::build(&app.project.layers, app.scene_revision));
+        app.scene = Arc::new(Scene::build(
+            &app.project.layers,
+            &app.project.operations,
+            app.scene_revision,
+        ));
         app.scene_sig = sig;
     }
 }
@@ -105,7 +140,10 @@ fn overlay_info(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
     let zoom_level = app.camera.zoom;
 
     let coord_text = if let Some(pos) = cursor_world {
-        format!("X: {:.3}  Y: {:.3}   Zoom: {:.2}×", pos.x, pos.y, zoom_level)
+        format!(
+            "X: {:.3}  Y: {:.3}   Zoom: {:.2}×",
+            pos.x, pos.y, zoom_level
+        )
     } else {
         format!("Zoom: {:.2}×", zoom_level)
     };

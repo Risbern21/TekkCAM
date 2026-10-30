@@ -91,8 +91,8 @@ pub fn palette_color(kind: &LayerKind, index: usize) -> [f32; 4] {
 fn detect_kind(path: &str) -> LayerKind {
     let lower = path.to_lowercase();
     const GERBER: &[&str] = &[
-        ".gbr", ".ger", ".gtl", ".gbl", ".gts", ".gbs", ".gtp", ".gbp", ".gto", ".gbo",
-        ".gko", ".gm1", ".gml", ".cmp", ".sol", ".art",
+        ".gbr", ".ger", ".gtl", ".gbl", ".gts", ".gbs", ".gtp", ".gbp", ".gto", ".gbo", ".gko",
+        ".gm1", ".gml", ".cmp", ".sol", ".art",
     ];
     if GERBER.iter().any(|e| lower.ends_with(e)) {
         LayerKind::Gerber

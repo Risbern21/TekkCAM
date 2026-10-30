@@ -1,7 +1,7 @@
-use eframe::egui;
 use crate::app::TekkCamApp;
-use crate::workspace::layer::{Layer, LayerKind};
 use crate::cam::operations::OperationKind;
+use crate::workspace::layer::{Layer, LayerKind};
+use eframe::egui;
 
 const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(20, 20, 28);
 const HEADER_COLOR: egui::Color32 = egui::Color32::from_rgb(140, 160, 220);
@@ -29,10 +29,8 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 if ui
                     .add_sized(
                         [ui.available_width(), 24.0],
-                        egui::Button::new(
-                            egui::RichText::new("+ Add Layer").color(ACCENT),
-                        )
-                        .frame(true),
+                        egui::Button::new(egui::RichText::new("+ Add Layer").color(ACCENT))
+                            .frame(true),
                     )
                     .clicked()
                 {
@@ -65,7 +63,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             let mut select_layer: Option<usize> = None;
 
             for (i, (is_selected, vis_icon, label, _vis)) in layer_display.iter().enumerate() {
-                let row_bg = if *is_selected { SELECTED_BG } else { egui::Color32::TRANSPARENT };
+                let row_bg = if *is_selected {
+                    SELECTED_BG
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
 
                 let response = egui::Frame::new()
                     .fill(row_bg)
@@ -115,14 +117,14 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 if ui
                     .add_sized(
                         [ui.available_width(), 24.0],
-                        egui::Button::new(
-                            egui::RichText::new("+ Add Operation").color(ACCENT),
-                        )
-                        .frame(true),
+                        egui::Button::new(egui::RichText::new("+ Add Operation").color(ACCENT))
+                            .frame(true),
                     )
                     .clicked()
                 {
-                    app.project.operations.push(crate::cam::operations::Operation::placeholder());
+                    app.project
+                        .operations
+                        .push(crate::cam::operations::Operation::placeholder());
                 }
             });
             ui.add_space(4.0);
@@ -148,7 +150,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             let mut select_op: Option<usize> = None;
 
             for (i, (is_selected, icon, name, generated)) in op_display.iter().enumerate() {
-                let row_bg = if *is_selected { SELECTED_BG } else { egui::Color32::TRANSPARENT };
+                let row_bg = if *is_selected {
+                    SELECTED_BG
+                } else {
+                    egui::Color32::TRANSPARENT
+                };
 
                 let response = egui::Frame::new()
                     .fill(row_bg)

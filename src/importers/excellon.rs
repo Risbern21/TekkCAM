@@ -13,7 +13,11 @@ fn num_after(s: &str, key: char) -> Option<&str> {
     let end = rest
         .find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+'))
         .unwrap_or(rest.len());
-    if end == 0 { None } else { Some(&rest[..end]) }
+    if end == 0 {
+        None
+    } else {
+        Some(&rest[..end])
+    }
 }
 
 struct Fmt {
@@ -41,16 +45,29 @@ impl Fmt {
                 }
             }
             let v = d.parse::<f64>().unwrap_or(0.0) / 10f64.powi(self.dec_digits as i32);
-            if neg { -v } else { v }
+            if neg {
+                -v
+            } else {
+                v
+            }
         };
-        if self.metric { v } else { v * 25.4 }
+        if self.metric {
+            v
+        } else {
+            v * 25.4
+        }
     }
 }
 
 pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
     let mut geom = Geometry::default();
     let mut notes = Vec::new();
-    let mut fmt = Fmt { metric: true, int_digits: 3, dec_digits: 3, leading_suppressed: false };
+    let mut fmt = Fmt {
+        metric: true,
+        int_digits: 3,
+        dec_digits: 3,
+        leading_suppressed: false,
+    };
     let mut format_from_file = false;
     let mut tools: HashMap<u32, f64> = HashMap::new();
     let mut cur_tool: Option<u32> = None;
@@ -151,7 +168,11 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
                 pos = end;
             } else {
                 geom.add_circle(pos, dia * 0.5);
-                geom.drills.push(DrillHit { x: pos[0], y: pos[1], diameter: dia });
+                geom.drills.push(DrillHit {
+                    x: pos[0],
+                    y: pos[1],
+                    diameter: dia,
+                });
             }
         }
     }
@@ -159,6 +180,13 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
     if geom.is_empty() {
         anyhow::bail!("Excellon file contained no drill hits");
     }
-    notes.push(format!("{} drill hits, {} tool(s)", geom.drills.len(), tools.len()));
-    Ok(ParseOutput { geometry: geom, notes })
+    notes.push(format!(
+        "{} drill hits, {} tool(s)",
+        geom.drills.len(),
+        tools.len()
+    ));
+    Ok(ParseOutput {
+        geometry: geom,
+        notes,
+    })
 }

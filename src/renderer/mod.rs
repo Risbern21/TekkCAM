@@ -4,10 +4,10 @@ pub mod pipeline;
 
 use std::sync::Arc;
 
-use egui_wgpu::wgpu;
-pub use camera::Camera2D;
 use crate::renderer::grid::GridRenderer;
 use crate::renderer::pipeline::{GeometryRenderer, Scene};
+pub use camera::Camera2D;
+use egui_wgpu::wgpu;
 
 /// The main wgpu renderer stored in egui_wgpu callback resources.
 pub struct ViewportRenderer {
@@ -59,7 +59,9 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         if let Some(renderer) = resources.get_mut::<ViewportRenderer>() {
             renderer.camera = self.camera.clone();
             renderer.show_grid = self.show_grid;
-            renderer.grid.update_uniforms(device, queue, &renderer.camera, self.viewport_size);
+            renderer
+                .grid
+                .update_uniforms(device, queue, &renderer.camera, self.viewport_size);
             let vp = renderer.camera.view_proj_matrix((
                 self.viewport_size[0].max(1.0),
                 self.viewport_size[1].max(1.0),

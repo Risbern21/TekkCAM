@@ -14,7 +14,10 @@ struct Entity {
 
 impl Entity {
     fn f(&self, code: i32) -> Option<f64> {
-        self.data.iter().find(|(c, _)| *c == code).and_then(|(_, v)| v.parse().ok())
+        self.data
+            .iter()
+            .find(|(c, _)| *c == code)
+            .and_then(|(_, v)| v.parse().ok())
     }
     fn fd(&self, code: i32, default: f64) -> f64 {
         self.f(code).unwrap_or(default)
@@ -97,7 +100,9 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
     while k < pairs.len() {
         let (code, val) = &pairs[k];
         if *code == 0 && val == "SECTION" {
-            in_entities = pairs.get(k + 1).map_or(false, |p| p.0 == 2 && p.1 == "ENTITIES");
+            in_entities = pairs
+                .get(k + 1)
+                .map_or(false, |p| p.0 == 2 && p.1 == "ENTITIES");
             k += 2;
             continue;
         }
@@ -105,7 +110,10 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
             in_entities = false;
         }
         if in_entities && *code == 0 {
-            let mut e = Entity { kind: val.clone(), data: Vec::new() };
+            let mut e = Entity {
+                kind: val.clone(),
+                data: Vec::new(),
+            };
             k += 1;
             while k < pairs.len() && pairs[k].0 != 0 {
                 e.data.push(pairs[k].clone());
@@ -133,7 +141,10 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
     for e in &entities {
         match e.kind.as_str() {
             "LINE" => {
-                let (a, b) = ([e.fd(10, 0.0) * s, e.fd(20, 0.0) * s], [e.fd(11, 0.0) * s, e.fd(21, 0.0) * s]);
+                let (a, b) = (
+                    [e.fd(10, 0.0) * s, e.fd(20, 0.0) * s],
+                    [e.fd(11, 0.0) * s, e.fd(21, 0.0) * s],
+                );
                 geom.add_line(a, b);
             }
             "CIRCLE" => {
@@ -148,7 +159,12 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
                 if a1 <= a0 {
                     a1 += 360.0;
                 }
-                let pts = arc_points(c, e.fd(40, 0.0) * s, a0.to_radians(), (a1 - a0).to_radians());
+                let pts = arc_points(
+                    c,
+                    e.fd(40, 0.0) * s,
+                    a0.to_radians(),
+                    (a1 - a0).to_radians(),
+                );
                 geom.add_polyline(&pts, false);
             }
             "LWPOLYLINE" => {
@@ -220,7 +236,9 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
                     }
                 }
                 geom.add_polyline(&pts, false);
-                *skipped.entry("SPLINE (drawn as control polygon)".into()).or_default() += 1;
+                *skipped
+                    .entry("SPLINE (drawn as control polygon)".into())
+                    .or_default() += 1;
             }
             other => {
                 *skipped.entry(other.to_string()).or_default() += 1;
@@ -236,5 +254,8 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
         .into_iter()
         .map(|(k, n)| format!("Skipped/approximated {n}× {k}"))
         .collect();
-    Ok(ParseOutput { geometry: geom, notes })
+    Ok(ParseOutput {
+        geometry: geom,
+        notes,
+    })
 }

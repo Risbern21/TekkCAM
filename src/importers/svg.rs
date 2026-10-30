@@ -58,7 +58,10 @@ fn parse_attrs(tag: &str) -> HashMap<String, String> {
 
 fn num(a: &HashMap<String, String>, k: &str) -> f64 {
     a.get(k)
-        .map(|s| s.trim_end_matches(|c: char| c.is_alphabetic() || c == '%').trim())
+        .map(|s| {
+            s.trim_end_matches(|c: char| c.is_alphabetic() || c == '%')
+                .trim()
+        })
         .and_then(|s| s.parse().ok())
         .unwrap_or(0.0)
 }
@@ -85,7 +88,9 @@ struct PathScanner {
 
 impl PathScanner {
     fn skip(&mut self) {
-        while self.pos < self.c.len() && (self.c[self.pos].is_whitespace() || self.c[self.pos] == ',') {
+        while self.pos < self.c.len()
+            && (self.c[self.pos].is_whitespace() || self.c[self.pos] == ',')
+        {
             self.pos += 1;
         }
     }
@@ -95,13 +100,16 @@ impl PathScanner {
     }
     fn peek_cmd(&mut self) -> Option<char> {
         self.skip();
-        self.c.get(self.pos).copied().filter(|c| c.is_ascii_alphabetic())
+        self.c
+            .get(self.pos)
+            .copied()
+            .filter(|c| c.is_ascii_alphabetic())
     }
     fn has_num(&mut self) -> bool {
         self.skip();
-        self.c
-            .get(self.pos)
-            .map_or(false, |c| c.is_ascii_digit() || *c == '-' || *c == '+' || *c == '.')
+        self.c.get(self.pos).map_or(false, |c| {
+            c.is_ascii_digit() || *c == '-' || *c == '+' || *c == '.'
+        })
     }
     fn num(&mut self) -> f64 {
         self.skip();
@@ -117,7 +125,10 @@ impl PathScanner {
                 seen_dot = true;
                 self.pos += 1;
             } else if (ch == 'e' || ch == 'E')
-                && self.c.get(self.pos + 1).map_or(false, |n| n.is_ascii_digit() || *n == '-' || *n == '+')
+                && self
+                    .c
+                    .get(self.pos + 1)
+                    .map_or(false, |n| n.is_ascii_digit() || *n == '-' || *n == '+')
             {
                 self.pos += 2;
             } else {
@@ -141,8 +152,14 @@ fn cubic(p0: P, p1: P, p2: P, p3: P, out: &mut Vec<P>) {
         let t = i as f64 / n as f64;
         let u = 1.0 - t;
         out.push([
-            u * u * u * p0[0] + 3.0 * u * u * t * p1[0] + 3.0 * u * t * t * p2[0] + t * t * t * p3[0],
-            u * u * u * p0[1] + 3.0 * u * u * t * p1[1] + 3.0 * u * t * t * p2[1] + t * t * t * p3[1],
+            u * u * u * p0[0]
+                + 3.0 * u * u * t * p1[0]
+                + 3.0 * u * t * t * p2[0]
+                + t * t * t * p3[0],
+            u * u * u * p0[1]
+                + 3.0 * u * u * t * p1[1]
+                + 3.0 * u * t * t * p2[1]
+                + t * t * t * p3[1],
         ]);
     }
 }
@@ -160,7 +177,16 @@ fn quad(p0: P, p1: P, p2: P, out: &mut Vec<P>) {
 }
 
 /// SVG endpoint arc → points (spec F.6.5)
-fn arc_to(from: P, to: P, mut rx: f64, mut ry: f64, phi_deg: f64, fa: bool, fs: bool, out: &mut Vec<P>) {
+fn arc_to(
+    from: P,
+    to: P,
+    mut rx: f64,
+    mut ry: f64,
+    phi_deg: f64,
+    fa: bool,
+    fs: bool,
+    out: &mut Vec<P>,
+) {
     if (from[0] - to[0]).abs() < 1e-12 && (from[1] - to[1]).abs() < 1e-12 {
         return;
     }
@@ -184,7 +210,11 @@ fn arc_to(from: P, to: P, mut rx: f64, mut ry: f64, phi_deg: f64, fa: bool, fs: 
     }
     let num = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
     let den = rx * rx * y1p * y1p + ry * ry * x1p * x1p;
-    let mut co = if den.abs() < 1e-18 { 0.0 } else { (num / den).max(0.0).sqrt() };
+    let mut co = if den.abs() < 1e-18 {
+        0.0
+    } else {
+        (num / den).max(0.0).sqrt()
+    };
     if fa == fs {
         co = -co;
     }
@@ -197,7 +227,12 @@ fn arc_to(from: P, to: P, mut rx: f64, mut ry: f64, phi_deg: f64, fa: bool, fs: 
         a
     };
     let th1 = ang(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
-    let mut dth = ang((x1p - cxp) / rx, (y1p - cyp) / ry, (-x1p - cxp) / rx, (-y1p - cyp) / ry);
+    let mut dth = ang(
+        (x1p - cxp) / rx,
+        (y1p - cyp) / ry,
+        (-x1p - cxp) / rx,
+        (-y1p - cyp) / ry,
+    );
     if !fs && dth > 0.0 {
         dth -= TAU;
     } else if fs && dth < 0.0 {
@@ -212,7 +247,10 @@ fn arc_to(from: P, to: P, mut rx: f64, mut ry: f64, phi_deg: f64, fa: bool, fs: 
 }
 
 fn parse_path(d: &str) -> Vec<SubPath> {
-    let mut sc = PathScanner { c: d.chars().collect(), pos: 0 };
+    let mut sc = PathScanner {
+        c: d.chars().collect(),
+        pos: 0,
+    };
     let mut subs: Vec<SubPath> = Vec::new();
     let mut pts: Vec<P> = Vec::new();
     let mut cur: P = [0.0, 0.0];
@@ -361,7 +399,10 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
         if tag.starts_with('/') || tag.starts_with('!') || tag.starts_with('?') {
             continue;
         }
-        let name: String = tag.chars().take_while(|c| !c.is_whitespace() && *c != '/').collect();
+        let name: String = tag
+            .chars()
+            .take_while(|c| !c.is_whitespace() && *c != '/')
+            .collect();
         let a = parse_attrs(tag);
         if a.contains_key("transform") {
             saw_transform = true;
@@ -390,9 +431,20 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
                     shapes.extend(parse_path(d));
                 }
             }
-            "line" => shapes.push((vec![[num(&a, "x1"), num(&a, "y1")], [num(&a, "x2"), num(&a, "y2")]], false)),
+            "line" => shapes.push((
+                vec![
+                    [num(&a, "x1"), num(&a, "y1")],
+                    [num(&a, "x2"), num(&a, "y2")],
+                ],
+                false,
+            )),
             "rect" => {
-                let (x, y, w, h) = (num(&a, "x"), num(&a, "y"), num(&a, "width"), num(&a, "height"));
+                let (x, y, w, h) = (
+                    num(&a, "x"),
+                    num(&a, "y"),
+                    num(&a, "width"),
+                    num(&a, "height"),
+                );
                 shapes.push((vec![[x, y], [x + w, y], [x + w, y + h], [x, y + h]], true));
             }
             "circle" => {
@@ -442,5 +494,8 @@ pub fn parse(source: &str) -> anyhow::Result<ParseOutput> {
         notes.push("SVG 'transform' attributes are not applied".into());
     }
     notes.push("SVG shapes imported as outlines (fills ignored)".into());
-    Ok(ParseOutput { geometry: geom, notes })
+    Ok(ParseOutput {
+        geometry: geom,
+        notes,
+    })
 }

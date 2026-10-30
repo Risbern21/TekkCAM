@@ -2,21 +2,19 @@
 #![allow(dead_code, unused_variables, unused_imports)]
 
 mod app;
-mod ui;
-mod renderer;
-mod workspace;
-mod importers;
 mod cam;
 mod gcode;
+mod importers;
 mod machine;
+mod renderer;
+mod ui;
+mod workspace;
 
 fn main() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(
-            // Show our own crate at INFO, suppress noisy wgpu/zbus internals
-            "warn,tekkcam=info,eframe=info,egui_wgpu=info,wgpu=warn",
-        ),
-    )
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
+        // Show our own crate at INFO, suppress noisy wgpu/zbus internals
+        "warn,tekkcam=info,eframe=info,egui_wgpu=info,wgpu=warn",
+    ))
     .init();
 
     let native_options = eframe::NativeOptions {

@@ -64,8 +64,8 @@ impl Camera2D {
         let sy = 2.0 * self.zoom / h;
 
         Mat4::from_cols_array_2d(&[
-            [sx,  0.0, 0.0, 0.0],
-            [0.0, sy,  0.0, 0.0],
+            [sx, 0.0, 0.0, 0.0],
+            [0.0, sy, 0.0, 0.0],
             [0.0, 0.0, 1.0, 0.0],
             [-self.pan.x * sx, -self.pan.y * sy, 0.0, 1.0],
         ])

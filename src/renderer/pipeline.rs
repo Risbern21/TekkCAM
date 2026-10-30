@@ -3,7 +3,13 @@ use bytemuck::{Pod, Zeroable};
 use egui_wgpu::wgpu;
 use egui_wgpu::wgpu::util::DeviceExt;
 
-use crate::workspace::layer::Layer;
+use crate::{
+    cam::{
+        operations::Operation,
+        toolpath::{MoveKind, ToolMove},
+    },
+    workspace::layer::Layer,
+};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -19,15 +25,50 @@ pub struct Scene {
     pub revision: u64,
     pub triangles: Vec<Vertex>,
     pub lines: Vec<Vertex>,
+    pub toolpaths: Vec<Vertex>,
 }
 
 impl Scene {
-    pub fn build(layers: &[Layer], revision: u64) -> Self {
-        let mut scene = Scene { revision, ..Default::default() };
+    pub fn build(layers: &[Layer], operations: &[Operation], revision: u64) -> Self {
+        let mut scene = Scene {
+            revision,
+            ..Default::default()
+        };
         for l in layers.iter().filter(|l| l.visible) {
             let color = l.color;
-            scene.triangles.extend(l.geometry.triangles.iter().map(|p| Vertex { pos: *p, color }));
-            scene.lines.extend(l.geometry.lines.iter().map(|p| Vertex { pos: *p, color }));
+            scene.triangles.extend(
+                l.geometry
+                    .triangles
+                    .iter()
+                    .map(|p| Vertex { pos: *p, color }),
+            );
+            scene
+                .lines
+                .extend(l.geometry.lines.iter().map(|p| Vertex { pos: *p, color }));
+        }
+        for op in operations.iter().filter(|op| op.generated) {
+            let colour = |kind| match kind {
+                MoveKind::Rapid => [0.35, 0.55, 0.95, 0.55],
+                MoveKind::Feed => [1.0, 0.45, 0.15, 1.0],
+                MoveKind::Arc => [0.85, 0.35, 1.0, 1.0],
+                MoveKind::Drill => [1.0, 0.85, 0.15, 1.0],
+            };
+            let mut previous = None;
+            for mv in &op.toolpath.moves {
+                let end = mv.end();
+                let p = [end[0] as f32, end[1] as f32];
+                if let Some(start) = previous {
+                    scene.toolpaths.push(Vertex {
+                        pos: start,
+                        color: colour(mv.kind()),
+                    });
+                    scene.toolpaths.push(Vertex {
+                        pos: p,
+                        color: colour(mv.kind()),
+                    });
+                }
+                previous = Some(p);
+            }
         }
         scene
     }
@@ -42,6 +83,8 @@ pub struct GeometryRenderer {
     tri_count: u32,
     line_buffer: Option<wgpu::Buffer>,
     line_count: u32,
+    toolpath_buffer: Option<wgpu::Buffer>,
+    toolpath_count: u32,
     revision: u64,
 }
 
@@ -69,11 +112,16 @@ impl GeometryRenderer {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("geometry_bg"),
             layout: &bgl,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform_buffer.as_entire_binding() }],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("geometry_shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../assets/shaders/geometry.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../assets/shaders/geometry.wgsl").into(),
+            ),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("geometry_pipeline_layout"),
@@ -106,7 +154,10 @@ impl GeometryRenderer {
                     })],
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { topology, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    topology,
+                    ..Default::default()
+                },
                 depth_stencil: None,
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
@@ -115,7 +166,10 @@ impl GeometryRenderer {
         };
 
         Self {
-            tri_pipeline: make(wgpu::PrimitiveTopology::TriangleList, "geometry_tri_pipeline"),
+            tri_pipeline: make(
+                wgpu::PrimitiveTopology::TriangleList,
+                "geometry_tri_pipeline",
+            ),
             line_pipeline: make(wgpu::PrimitiveTopology::LineList, "geometry_line_pipeline"),
             uniform_buffer,
             bind_group,
@@ -123,12 +177,18 @@ impl GeometryRenderer {
             tri_count: 0,
             line_buffer: None,
             line_count: 0,
+            toolpath_buffer: None,
+            toolpath_count: 0,
             revision: u64::MAX,
         }
     }
 
     pub fn update_camera(&self, queue: &wgpu::Queue, view_proj: &glam::Mat4) {
-        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&view_proj.to_cols_array()));
+        queue.write_buffer(
+            &self.uniform_buffer,
+            0,
+            bytemuck::cast_slice(&view_proj.to_cols_array()),
+        );
     }
 
     /// Re-upload vertex buffers if the scene changed.
@@ -141,17 +201,21 @@ impl GeometryRenderer {
             if verts.is_empty() {
                 None
             } else {
-                Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(label),
-                    contents: bytemuck::cast_slice(verts),
-                    usage: wgpu::BufferUsages::VERTEX,
-                }))
+                Some(
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(label),
+                        contents: bytemuck::cast_slice(verts),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    }),
+                )
             }
         };
         self.tri_buffer = upload(&scene.triangles, "geometry_tris");
         self.tri_count = scene.triangles.len() as u32;
         self.line_buffer = upload(&scene.lines, "geometry_lines");
         self.line_count = scene.lines.len() as u32;
+        self.toolpath_buffer = upload(&scene.toolpaths, "toolpath_lines");
+        self.toolpath_count = scene.toolpaths.len() as u32;
     }
 
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'static>) {
@@ -166,6 +230,12 @@ impl GeometryRenderer {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..self.line_count, 0..1);
+        }
+        if let Some(buf) = &self.toolpath_buffer {
+            pass.set_pipeline(&self.line_pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, buf.slice(..));
+            pass.draw(0..self.toolpath_count, 0..1);
         }
     }
 }

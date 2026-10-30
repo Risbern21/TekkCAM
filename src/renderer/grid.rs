@@ -1,6 +1,6 @@
+use crate::renderer::camera::Camera2D;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::{wgpu, ScreenDescriptor};
-use crate::renderer::camera::Camera2D;
 
 /// Uniform buffer layout (must match grid.wgsl)
 #[repr(C)]
@@ -100,7 +100,11 @@ impl GridRenderer {
             cache: None,
         });
 
-        Self { pipeline, uniform_buffer, bind_group }
+        Self {
+            pipeline,
+            uniform_buffer,
+            bind_group,
+        }
     }
 
     pub fn update_uniforms(
