@@ -3,12 +3,16 @@ use crate::gcode::generator::Dialect;
 use eframe::egui;
 use egui::text::{LayoutJob, TextFormat};
 
-const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(14, 14, 20);
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
 const SUCCESS: egui::Color32 = egui::Color32::from_rgb(60, 200, 100);
 const DANGER: egui::Color32 = egui::Color32::from_rgb(220, 70, 70);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
+        egui::Color32::from_rgb(235, 238, 244)
+    } else {
+        egui::Color32::from_rgb(14, 14, 20)
+    };
     egui::TopBottomPanel::bottom("console")
         .resizable(true)
         .default_height(190.0)
@@ -16,10 +20,14 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
         .max_height(440.0)
         .frame(
             egui::Frame::new()
-                .fill(PANEL_BG)
+                .fill(panel_bg)
                 .inner_margin(egui::Margin::same(8)),
         )
         .show(ctx, |ui| {
+            // Preserve the height selected with the panel resize handle even
+            // when the log or editor contains little content.
+            ui.set_min_height(ui.max_rect().height());
+
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new(if app.ui_state.show_gcode_editor {
@@ -112,6 +120,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 };
                 egui::ScrollArea::vertical()
                     .id_salt("gcode_editor_scroll")
+                    .drag_to_scroll(false)
                     .max_height(body_height)
                     .show(ui, |ui| {
                         ui.add_sized(
@@ -126,25 +135,36 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             } else {
                 egui::ScrollArea::vertical()
                     .id_salt("console_log")
+                    .drag_to_scroll(false)
                     .max_height(body_height)
                     .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        for line in &app.ui_state.console_log {
-                            let color = if line.starts_with("✖") || line.starts_with("Error") {
-                                DANGER
-                            } else if line.starts_with("✔") || line.contains("ready") {
-                                SUCCESS
-                            } else {
-                                egui::Color32::from_rgb(180, 200, 180)
-                            };
-                            ui.label(
-                                egui::RichText::new(line)
-                                    .monospace()
-                                    .size(12.0)
-                                    .color(color),
-                            );
-                        }
-                    });
+                    .show_rows(
+                        ui,
+                        ui.text_style_height(&egui::TextStyle::Monospace),
+                        app.ui_state.console_log.len(),
+                        |ui, visible_rows| {
+                            for row in visible_rows {
+                                let line = &app.ui_state.console_log[row];
+                                let color = if line.starts_with("✖") || line.starts_with("Error")
+                                {
+                                    DANGER
+                                } else if line.starts_with("✔") || line.contains("ready") {
+                                    SUCCESS
+                                } else {
+                                    egui::Color32::from_rgb(180, 200, 180)
+                                };
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(line)
+                                            .monospace()
+                                            .size(12.0)
+                                            .color(color),
+                                    )
+                                    .truncate(),
+                                );
+                            }
+                        },
+                    );
             }
             ui.separator();
             ui.horizontal(|ui| {

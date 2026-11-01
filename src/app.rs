@@ -4,6 +4,7 @@ use crate::{
     workspace::project::Project,
 };
 use eframe::egui;
+use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::{
@@ -14,6 +15,8 @@ use std::{
 
 enum DialogResult {
     Open(Option<Vec<PathBuf>>),
+    ProjectOpen(Option<PathBuf>),
+    ProjectSave(Option<Result<PathBuf, String>>),
     Export(Option<Result<PathBuf, String>>),
 }
 
@@ -32,6 +35,147 @@ pub struct TekkCamApp {
     pub scene_sig: Vec<(u64, bool, u64)>,
     pub scene_revision: u64,
     pub machine: Option<crate::machine::controller::MachineController>,
+    pub project_path: Option<PathBuf>,
+    project_history: ProjectHistory,
+    preferences: AppPreferences,
+    plugin_registry: crate::cam::plugin::PluginRegistry,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+struct AppPreferences {
+    display_units: DisplayUnits,
+    theme: AppTheme,
+    selected_machine_port: Option<String>,
+    machine_baud_rate: u32,
+}
+
+impl Default for AppPreferences {
+    fn default() -> Self {
+        Self {
+            display_units: DisplayUnits::Millimeters,
+            theme: AppTheme::Dark,
+            selected_machine_port: None,
+            machine_baud_rate: 115200,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppTheme {
+    Light,
+    #[default]
+    Dark,
+}
+
+pub(crate) fn apply_theme(ctx: &egui::Context, theme: AppTheme) {
+    let mut visuals = match theme {
+        AppTheme::Light => egui::Visuals::light(),
+        AppTheme::Dark => {
+            let mut visuals = egui::Visuals::dark();
+            visuals.panel_fill = egui::Color32::from_rgb(18, 18, 24);
+            visuals.extreme_bg_color = egui::Color32::from_rgb(12, 12, 16);
+            visuals.faint_bg_color = egui::Color32::from_rgb(22, 22, 30);
+            visuals.override_text_color = Some(egui::Color32::from_rgb(220, 220, 230));
+            visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(28, 28, 38);
+            visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(35, 35, 48);
+            visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(55, 55, 75);
+            visuals.widgets.active.bg_fill = egui::Color32::from_rgb(80, 120, 200);
+            visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(80, 120, 200, 180);
+            visuals
+        }
+    };
+    visuals.window_corner_radius = egui::CornerRadius::same(8);
+    ctx.set_visuals(visuals);
+}
+
+impl AppPreferences {
+    fn path() -> Option<PathBuf> {
+        if let Some(config) = std::env::var_os("XDG_CONFIG_HOME") {
+            Some(PathBuf::from(config).join("tekkcam/settings.json"))
+        } else {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.join(".config/tekkcam/settings.json"))
+        }
+    }
+
+    fn load() -> Self {
+        Self::path()
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self) -> Result<(), String> {
+        let Some(path) = Self::path() else {
+            return Ok(());
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        let contents = serde_json::to_vec_pretty(self).map_err(|error| error.to_string())?;
+        std::fs::write(path, contents).map_err(|error| error.to_string())
+    }
+}
+
+#[derive(Default)]
+struct ProjectHistory {
+    undo: Vec<String>,
+    redo: Vec<String>,
+    last_snapshot: String,
+}
+
+impl ProjectHistory {
+    fn new(project: &Project) -> Self {
+        Self {
+            last_snapshot: serde_json::to_string(project).unwrap_or_default(),
+            ..Default::default()
+        }
+    }
+
+    fn capture(&mut self, project: &Project) {
+        let Ok(snapshot) = serde_json::to_string(project) else {
+            return;
+        };
+        if snapshot != self.last_snapshot {
+            if !self.last_snapshot.is_empty() {
+                self.undo
+                    .push(std::mem::replace(&mut self.last_snapshot, snapshot));
+                if self.undo.len() > 100 {
+                    self.undo.remove(0);
+                }
+            } else {
+                self.last_snapshot = snapshot;
+            }
+            self.redo.clear();
+        }
+    }
+
+    fn undo(&mut self, project: &mut Project) -> Result<bool, String> {
+        self.capture(project);
+        let Some(snapshot) = self.undo.pop() else {
+            return Ok(false);
+        };
+        self.redo
+            .push(std::mem::replace(&mut self.last_snapshot, snapshot.clone()));
+        *project = serde_json::from_str(&snapshot).map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    fn redo(&mut self, project: &mut Project) -> Result<bool, String> {
+        let Some(snapshot) = self.redo.pop() else {
+            return Ok(false);
+        };
+        self.undo
+            .push(std::mem::replace(&mut self.last_snapshot, snapshot.clone()));
+        *project = serde_json::from_str(&snapshot).map_err(|error| error.to_string())?;
+        Ok(true)
+    }
+
+    fn reset(&mut self, project: &Project) {
+        *self = Self::new(project);
+    }
 }
 
 /// Transient UI state not serialised to disk
@@ -44,6 +188,10 @@ pub struct UiState {
     pub status_message: String,
     pub machine_connected: bool,
     pub show_grid: bool,
+    pub show_3d_view: bool,
+    pub display_units: DisplayUnits,
+    pub theme: AppTheme,
+    pub project_dirty: bool,
     /// Set to frame all geometry on the next viewport pass
     pub request_fit: bool,
     /// Last known viewport rect size (points)
@@ -69,6 +217,28 @@ pub struct UiState {
     dialog_pending: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisplayUnits {
+    #[default]
+    Millimeters,
+    Inches,
+}
+
+impl DisplayUnits {
+    pub fn factor(self) -> f64 {
+        match self {
+            Self::Millimeters => 1.0,
+            Self::Inches => 25.4,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Millimeters => "mm",
+            Self::Inches => "in",
+        }
+    }
+}
+
 impl Default for UiState {
     fn default() -> Self {
         Self {
@@ -83,6 +253,10 @@ impl Default for UiState {
             status_message: "Ready".into(),
             machine_connected: false,
             show_grid: true,
+            show_3d_view: false,
+            display_units: DisplayUnits::default(),
+            theme: AppTheme::Dark,
+            project_dirty: false,
             request_fit: false,
             viewport_size: egui::vec2(800.0, 600.0),
             gcode_text: String::new(),
@@ -110,19 +284,8 @@ impl Default for UiState {
 
 impl TekkCamApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // ── Dark, premium theme ───────────────────────────────────────────
-        let mut visuals = egui::Visuals::dark();
-        visuals.window_corner_radius = egui::CornerRadius::same(8);
-        visuals.panel_fill = egui::Color32::from_rgb(18, 18, 24);
-        visuals.extreme_bg_color = egui::Color32::from_rgb(12, 12, 16);
-        visuals.faint_bg_color = egui::Color32::from_rgb(22, 22, 30);
-        visuals.override_text_color = Some(egui::Color32::from_rgb(220, 220, 230));
-        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(28, 28, 38);
-        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(35, 35, 48);
-        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(55, 55, 75);
-        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(80, 120, 200);
-        visuals.selection.bg_fill = egui::Color32::from_rgba_premultiplied(80, 120, 200, 180);
-        cc.egui_ctx.set_visuals(visuals);
+        let preferences = AppPreferences::load();
+        apply_theme(&cc.egui_ctx, preferences.theme);
 
         // ── Register GPU resources for the wgpu viewport callback ─────────
         if let Some(wgpu_render_state) = cc.wgpu_render_state.as_ref() {
@@ -140,7 +303,7 @@ impl TekkCamApp {
             log::warn!("No wgpu render state — GPU viewport unavailable");
         }
 
-        Self {
+        let mut app = Self {
             project: Project::default(),
             ui_state: UiState::default(),
             camera: Camera2D::default(),
@@ -148,7 +311,46 @@ impl TekkCamApp {
             scene_sig: Vec::new(),
             scene_revision: 0,
             machine: None,
+            project_path: None,
+            project_history: ProjectHistory::new(&Project::default()),
+            preferences,
+            plugin_registry: crate::cam::plugin::PluginRegistry::default(),
+        };
+        app.ui_state.display_units = app.preferences.display_units;
+        app.ui_state.theme = app.preferences.theme;
+        app.ui_state.selected_machine_port = app.preferences.selected_machine_port.clone();
+        app.ui_state.machine_baud_rate = app.preferences.machine_baud_rate;
+        app
+    }
+
+    pub fn save_preferences(&mut self) {
+        self.preferences.display_units = self.ui_state.display_units;
+        self.preferences.theme = self.ui_state.theme;
+        self.preferences.selected_machine_port = self.ui_state.selected_machine_port.clone();
+        self.preferences.machine_baud_rate = self.ui_state.machine_baud_rate;
+        if let Err(error) = self.preferences.save() {
+            self.ui_state
+                .console_log
+                .push(format!("✖ Settings save failed: {error}"));
         }
+    }
+
+    pub fn add_operation(&mut self, mut operation: crate::cam::operations::Operation) {
+        operation.tool = self.project.default_tool.clone();
+        self.project.operations.push(operation);
+        self.ui_state.selected_operation = Some(self.project.operations.len() - 1);
+        self.ui_state.project_dirty = true;
+    }
+
+    pub fn register_operation_plugin(
+        &mut self,
+        plugin: impl crate::cam::plugin::CamOperationPlugin + 'static,
+    ) -> Result<(), String> {
+        self.plugin_registry.register(plugin)
+    }
+
+    pub fn operation_plugins(&self) -> Vec<(String, String)> {
+        self.plugin_registry.entries()
     }
 
     pub fn refresh_machine_ports(&mut self) {
@@ -181,6 +383,7 @@ impl TekkCamApp {
                 .push("✖ Select a serial port first".into());
             return;
         };
+        self.save_preferences();
         match crate::machine::controller::MachineController::connect(
             port,
             self.ui_state.machine_baud_rate,
@@ -298,6 +501,7 @@ impl TekkCamApp {
                 }
                 self.ui_state.status_message = format!("Loaded {}", layer.name);
                 self.project.layers.push(layer);
+                self.ui_state.project_dirty = true;
                 self.ui_state.selected_layer = Some(self.project.layers.len() - 1);
                 self.ui_state.request_fit = true;
             }
@@ -323,9 +527,11 @@ impl TekkCamApp {
                 .push("✖ No visible geometry to machine".into());
             return;
         };
+        let plugins = &self.plugin_registry;
         let op = &mut self.project.operations[index];
-        match op.generate_from_geometry(&geometry) {
+        match op.generate_from_geometry_with_plugins(&geometry, plugins) {
             Ok(n) => {
+                self.ui_state.project_dirty = true;
                 self.ui_state
                     .console_log
                     .push(format!("✔ Generated {} moves for '{}'", n, op.name));
@@ -399,6 +605,161 @@ impl TekkCamApp {
         });
     }
 
+    pub fn request_project_open_dialog(&mut self, ctx: &egui::Context) {
+        if self.ui_state.dialog_pending {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let repaint = ctx.clone();
+        self.ui_state.dialog_receiver = Some(rx);
+        self.ui_state.dialog_pending = true;
+        self.ui_state.status_message = "Opening project dialog…".into();
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_title("Open tekkCAM project")
+            .add_filter("tekkCAM project", &["tekkCAM", "json"])
+            .pick_file();
+        std::thread::spawn(move || {
+            let path = pollster::block_on(dialog).map(|handle| handle.path().to_path_buf());
+            let _ = tx.send(DialogResult::ProjectOpen(path));
+            repaint.request_repaint();
+        });
+    }
+
+    pub fn save_project(&mut self) {
+        if let Some(path) = self.project_path.clone() {
+            self.write_project(path);
+        } else {
+            self.ui_state.status_message = "Choose Save Project As… first".into();
+            self.ui_state
+                .console_log
+                .push("Project has no save path yet; use File → Save Project As…".into());
+        }
+    }
+
+    pub fn request_project_save_dialog(&mut self, ctx: &egui::Context) {
+        if self.ui_state.dialog_pending {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        let repaint = ctx.clone();
+        self.ui_state.dialog_receiver = Some(rx);
+        self.ui_state.dialog_pending = true;
+        self.ui_state.status_message = "Opening project save dialog…".into();
+        let dialog = rfd::AsyncFileDialog::new()
+            .set_title("Save tekkCAM project")
+            .set_file_name("project.tekkCAM")
+            .add_filter("tekkCAM project", &["tekkCAM"])
+            .save_file();
+        let project = match serde_json::to_string_pretty(&self.project) {
+            Ok(serialized) => serialized,
+            Err(error) => {
+                self.ui_state.dialog_receiver = None;
+                self.ui_state.dialog_pending = false;
+                self.ui_state.status_message = "Project serialization failed".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✖ Project save failed: {error}"));
+                return;
+            }
+        };
+        std::thread::spawn(move || {
+            let path = pollster::block_on(dialog).map(|handle| handle.path().to_path_buf());
+            let result = path.map(|path| {
+                std::fs::write(&path, project)
+                    .map(|()| path)
+                    .map_err(|error| error.to_string())
+            });
+            let _ = tx.send(DialogResult::ProjectSave(result));
+            repaint.request_repaint();
+        });
+    }
+
+    fn write_project(&mut self, path: PathBuf) {
+        let result = serde_json::to_string_pretty(&self.project)
+            .map_err(|error| error.to_string())
+            .and_then(|serialized| {
+                std::fs::write(&path, serialized).map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(()) => {
+                self.project_path = Some(path.clone());
+                self.ui_state.status_message = "Project saved".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✔ Saved project {}", path.display()));
+            }
+            Err(error) => {
+                self.ui_state.status_message = "Project save failed".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✖ Project save failed: {error}"));
+            }
+        }
+    }
+
+    fn load_project(&mut self, path: PathBuf) {
+        let result = std::fs::read_to_string(&path)
+            .map_err(|error| error.to_string())
+            .and_then(|contents| {
+                serde_json::from_str::<Project>(&contents).map_err(|error| error.to_string())
+            });
+        match result {
+            Ok(mut project) => {
+                for layer in &mut project.layers {
+                    layer.assign_fresh_id();
+                }
+                self.project = project;
+                self.project_history.reset(&self.project);
+                self.ui_state.project_dirty = false;
+                self.project_path = Some(path.clone());
+                self.scene_sig.clear();
+                self.ui_state.selected_layer = None;
+                self.ui_state.selected_operation = None;
+                self.ui_state.request_fit = true;
+                self.ui_state.gcode_text.clear();
+                self.ui_state.simulation_moves.clear();
+                self.ui_state
+                    .console_log
+                    .push(format!("✔ Opened project {}", path.display()));
+                self.ui_state.status_message = "Project loaded".into();
+            }
+            Err(error) => {
+                self.ui_state.status_message = "Project load failed".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✖ Project load failed: {error}"));
+            }
+        }
+    }
+
+    pub fn undo_project(&mut self) {
+        match self.project_history.undo(&mut self.project) {
+            Ok(true) => {
+                self.scene_sig.clear();
+                self.ui_state.status_message = "Undo".into();
+            }
+            Ok(false) => self.ui_state.status_message = "Nothing to undo".into(),
+            Err(error) => self
+                .ui_state
+                .console_log
+                .push(format!("✖ Undo failed: {error}")),
+        }
+    }
+
+    pub fn redo_project(&mut self) {
+        match self.project_history.redo(&mut self.project) {
+            Ok(true) => {
+                self.scene_sig.clear();
+                self.ui_state.status_message = "Redo".into();
+            }
+            Ok(false) => self.ui_state.status_message = "Nothing to redo".into(),
+            Err(error) => self
+                .ui_state
+                .console_log
+                .push(format!("✖ Redo failed: {error}")),
+        }
+    }
+
     pub fn request_export_dialog(&mut self, ctx: &egui::Context) {
         if self.ui_state.dialog_pending {
             return;
@@ -456,6 +817,26 @@ impl TekkCamApp {
             }
             Some(DialogResult::Open(None)) => {
                 self.ui_state.status_message = "Open cancelled".into();
+            }
+            Some(DialogResult::ProjectOpen(Some(path))) => self.load_project(path),
+            Some(DialogResult::ProjectOpen(None)) => {
+                self.ui_state.status_message = "Project open cancelled".into();
+            }
+            Some(DialogResult::ProjectSave(Some(Ok(path)))) => {
+                self.project_path = Some(path.clone());
+                self.ui_state.status_message = "Project saved".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✔ Saved project {}", path.display()));
+            }
+            Some(DialogResult::ProjectSave(Some(Err(error)))) => {
+                self.ui_state.status_message = "Project save failed".into();
+                self.ui_state
+                    .console_log
+                    .push(format!("✖ Project save failed: {error}"));
+            }
+            Some(DialogResult::ProjectSave(None)) => {
+                self.ui_state.status_message = "Project save cancelled".into();
             }
             Some(DialogResult::Export(Some(Ok(path)))) => {
                 self.ui_state.status_message = "G-code exported".into();
@@ -525,5 +906,48 @@ impl eframe::App for TekkCamApp {
 
         // ── Central viewport ─────────────────────────────────────────────────
         viewport::show(ctx, self);
+        crate::ui::settings::show(ctx, self);
+        if self.ui_state.project_dirty {
+            self.project_history.capture(&self.project);
+            self.ui_state.project_dirty = false;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn project_history_restores_undo_and_redo_snapshots() {
+        let mut project = Project::default();
+        let mut history = ProjectHistory::new(&project);
+        project.name = "part-a".into();
+        history.capture(&project);
+
+        assert!(history.undo(&mut project).unwrap());
+        assert_eq!(project.name, "");
+        assert!(history.redo(&mut project).unwrap());
+        assert_eq!(project.name, "part-a");
+        assert!(!history.redo(&mut project).unwrap());
+    }
+
+    #[test]
+    fn preferences_serialize_display_units_and_machine_connection() {
+        let preferences = AppPreferences {
+            display_units: DisplayUnits::Inches,
+            theme: AppTheme::Light,
+            selected_machine_port: Some("/dev/ttyUSB0".into()),
+            machine_baud_rate: 230400,
+        };
+        let json = serde_json::to_string(&preferences).unwrap();
+        let decoded: AppPreferences = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.display_units, DisplayUnits::Inches);
+        assert_eq!(decoded.theme, AppTheme::Light);
+        assert_eq!(
+            decoded.selected_machine_port.as_deref(),
+            Some("/dev/ttyUSB0")
+        );
+        assert_eq!(decoded.machine_baud_rate, 230400);
     }
 }

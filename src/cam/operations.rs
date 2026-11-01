@@ -1,5 +1,6 @@
 use crate::{
     cam::{
+        plugin::PluginRegistry,
         tool::Tool,
         toolpath::{Point, ToolMove, Toolpath},
     },
@@ -14,6 +15,7 @@ pub enum OperationKind {
     Drill,
     Contour,
     Placeholder,
+    Custom(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub struct Operation {
     pub generated: bool,
     #[serde(default)]
     pub toolpath: Toolpath,
+    #[serde(default)]
+    pub plugin_parameters: Vec<f64>,
 }
 
 impl Operation {
@@ -40,6 +44,7 @@ impl Operation {
             margin_mm: 0.0,
             generated: false,
             toolpath: Toolpath::default(),
+            plugin_parameters: Vec::new(),
         }
     }
     pub fn isolation() -> Self {
@@ -75,13 +80,30 @@ impl Operation {
         }
     }
 
+    pub fn custom(id: impl Into<String>, tool: Tool) -> Self {
+        Self {
+            name: "Custom Operation".into(),
+            kind: OperationKind::Custom(id.into()),
+            tool,
+            ..Self::placeholder()
+        }
+    }
+
     pub fn generate_from_geometry(&mut self, geometry: &Geometry) -> Result<usize, String> {
+        self.generate_from_geometry_with_plugins(geometry, &PluginRegistry::default())
+    }
+
+    pub fn generate_from_geometry_with_plugins(
+        &mut self,
+        geometry: &Geometry,
+        plugins: &PluginRegistry,
+    ) -> Result<usize, String> {
         if self.tool.diameter_mm <= 0.0 || self.total_depth_mm <= 0.0 {
             return Err("tool diameter and total depth must be positive".into());
         }
         let depth = -self.total_depth_mm;
         let mut path = Toolpath::default();
-        match self.kind {
+        match &self.kind {
             OperationKind::Drill => generate_drills(&mut path, geometry, depth, &self.tool),
             OperationKind::Pocket => generate_pocket(
                 &mut path,
@@ -97,9 +119,15 @@ impl Operation {
                     depth,
                     &self.tool,
                     self.margin_mm,
-                    matches!(self.kind, OperationKind::Isolation),
+                    matches!(&self.kind, OperationKind::Isolation),
                     self.depth_per_pass_mm,
                 )
+            }
+            OperationKind::Custom(id) => {
+                let plugin = plugins
+                    .get(id)
+                    .ok_or_else(|| format!("CAM plugin '{id}' is not registered"))?;
+                path = plugin.generate(geometry, &self.tool, &self.plugin_parameters)?;
             }
         }
         let count = path.moves.len();

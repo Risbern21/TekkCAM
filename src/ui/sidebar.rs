@@ -3,12 +3,16 @@ use crate::cam::operations::OperationKind;
 use crate::workspace::layer::{Layer, LayerKind};
 use eframe::egui;
 
-const PANEL_BG: egui::Color32 = egui::Color32::from_rgb(20, 20, 28);
 const HEADER_COLOR: egui::Color32 = egui::Color32::from_rgb(140, 160, 220);
 const SELECTED_BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 120, 200, 60);
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
+        egui::Color32::from_rgb(242, 244, 248)
+    } else {
+        egui::Color32::from_rgb(20, 20, 28)
+    };
     egui::SidePanel::left("sidebar")
         .resizable(true)
         .default_width(240.0)
@@ -16,7 +20,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
         .max_width(360.0)
         .frame(
             egui::Frame::new()
-                .fill(PANEL_BG)
+                .fill(panel_bg)
                 .inner_margin(egui::Margin::same(8)),
         )
         .show(ctx, |ui| {
@@ -35,6 +39,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     .clicked()
                 {
                     app.project.layers.push(Layer::new_placeholder());
+                    app.ui_state.project_dirty = true;
                 }
             });
             ui.add_space(4.0);
@@ -91,6 +96,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             // Apply deferred mutations
             if let Some(i) = toggle_vis {
                 app.project.layers[i].visible = !app.project.layers[i].visible;
+                app.ui_state.project_dirty = true;
             }
             if let Some(i) = select_layer {
                 app.ui_state.selected_layer = Some(i);
@@ -122,9 +128,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     )
                     .clicked()
                 {
-                    app.project
-                        .operations
-                        .push(crate::cam::operations::Operation::placeholder());
+                    app.add_operation(crate::cam::operations::Operation::placeholder());
                 }
             });
             ui.add_space(4.0);
@@ -142,6 +146,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         OperationKind::Drill => "⊙",
                         OperationKind::Contour => "▭",
                         OperationKind::Placeholder => "📋",
+                        OperationKind::Custom(_) => "⚙",
                     };
                     (selected, icon, op.name.clone(), op.generated)
                 })
@@ -210,7 +215,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                             .size(11.0)
                             .color(egui::Color32::from_rgb(120, 120, 140)),
                     );
-                    ui.label(egui::RichText::new("mm").size(11.0).color(ACCENT));
+                    ui.label(
+                        egui::RichText::new(app.ui_state.display_units.label())
+                            .size(11.0)
+                            .color(ACCENT),
+                    );
                 });
             });
         });

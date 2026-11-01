@@ -29,22 +29,28 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn build(layers: &[Layer], operations: &[Operation], revision: u64) -> Self {
+    pub fn build(
+        layers: &[Layer],
+        operations: &[Operation],
+        revision: u64,
+        view_3d: bool,
+    ) -> Self {
         let mut scene = Scene {
             revision,
             ..Default::default()
         };
         for l in layers.iter().filter(|l| l.visible) {
             let color = l.color;
-            scene.triangles.extend(
-                l.geometry
-                    .triangles
-                    .iter()
-                    .map(|p| Vertex { pos: *p, color }),
-            );
             scene
-                .lines
-                .extend(l.geometry.lines.iter().map(|p| Vertex { pos: *p, color }));
+                .triangles
+                .extend(l.geometry.triangles.iter().map(|p| Vertex {
+                    pos: project_point(p[0], p[1], 0.0, view_3d),
+                    color,
+                }));
+            scene.lines.extend(l.geometry.lines.iter().map(|p| Vertex {
+                pos: project_point(p[0], p[1], 0.0, view_3d),
+                color,
+            }));
         }
         for op in operations.iter().filter(|op| op.generated) {
             let colour = |kind| match kind {
@@ -53,17 +59,22 @@ impl Scene {
                 MoveKind::Arc => [0.85, 0.35, 1.0, 1.0],
                 MoveKind::Drill => [1.0, 0.85, 0.15, 1.0],
             };
-            let mut previous = None;
+            let mut previous: Option<[f32; 3]> = None;
             for mv in &op.toolpath.moves {
-                let end = mv.end();
-                let p = [end[0] as f32, end[1] as f32];
+                let (end, z) = match mv {
+                    ToolMove::Rapid { to, z }
+                    | ToolMove::Feed { to, z, .. }
+                    | ToolMove::Arc { to, z, .. } => (*to, *z),
+                    ToolMove::Drill { at, depth, .. } => (*at, *depth),
+                };
+                let p = [end[0] as f32, end[1] as f32, z as f32];
                 if let Some(start) = previous {
                     scene.toolpaths.push(Vertex {
-                        pos: start,
+                        pos: project_point(start[0], start[1], start[2], view_3d),
                         color: colour(mv.kind()),
                     });
                     scene.toolpaths.push(Vertex {
-                        pos: p,
+                        pos: project_point(p[0], p[1], p[2], view_3d),
                         color: colour(mv.kind()),
                     });
                 }
@@ -71,6 +82,31 @@ impl Scene {
             }
         }
         scene
+    }
+
+    pub fn bounds(&self) -> Option<([f32; 2], [f32; 2])> {
+        self.triangles
+            .iter()
+            .chain(&self.lines)
+            .chain(&self.toolpaths)
+            .fold(None, |bounds, vertex| {
+                Some(match bounds {
+                    None => (vertex.pos, vertex.pos),
+                    Some((min, max)) => (
+                        [min[0].min(vertex.pos[0]), min[1].min(vertex.pos[1])],
+                        [max[0].max(vertex.pos[0]), max[1].max(vertex.pos[1])],
+                    ),
+                })
+            })
+    }
+}
+
+fn project_point(x: f32, y: f32, z: f32, view_3d: bool) -> [f32; 2] {
+    if view_3d {
+        const DIAG: f32 = 0.70710677;
+        [((x - y) * DIAG), ((x + y) * 0.4082483 - z * 0.8164966)]
+    } else {
+        [x, y]
     }
 }
 
@@ -86,6 +122,20 @@ pub struct GeometryRenderer {
     toolpath_buffer: Option<wgpu::Buffer>,
     toolpath_count: u32,
     revision: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn isometric_projection_includes_tool_depth() {
+        let surface = project_point(4.0, 2.0, 0.0, true);
+        let cut = project_point(4.0, 2.0, -3.0, true);
+        assert_eq!(surface[0], cut[0]);
+        assert!(cut[1] > surface[1]);
+        assert_eq!(project_point(4.0, 2.0, -3.0, false), [4.0, 2.0]);
+    }
 }
 
 impl GeometryRenderer {

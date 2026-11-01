@@ -5,8 +5,13 @@ use eframe::egui;
 use std::sync::Arc;
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let viewport_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
+        egui::Color32::from_rgb(250, 251, 253)
+    } else {
+        egui::Color32::from_rgb(10, 10, 15)
+    };
     egui::CentralPanel::default()
-        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(10, 10, 15)))
+        .frame(egui::Frame::new().fill(viewport_bg))
         .show(ctx, |ui| {
             let rect = ui.available_rect_before_wrap();
             app.ui_state.viewport_size = rect.size();
@@ -44,7 +49,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 rect,
                 ViewportCallback {
                     camera: app.camera.clone(),
-                    show_grid: app.ui_state.show_grid,
+                    show_grid: app.ui_state.show_grid && !app.ui_state.show_3d_view,
                     viewport_size: [rect.width(), rect.height()],
                     scene: app.scene.clone(),
                 },
@@ -74,12 +79,15 @@ fn sync_scene(app: &mut TekkCamApp) {
                 .map(|(i, o)| (i as u64, o.generated, o.toolpath.moves.len() as u64)),
         )
         .collect();
+    let mut sig = sig;
+    sig.push((u64::MAX, app.ui_state.show_3d_view, 0));
     if sig != app.scene_sig {
         app.scene_revision += 1;
         app.scene = Arc::new(Scene::build(
             &app.project.layers,
             &app.project.operations,
             app.scene_revision,
+            app.ui_state.show_3d_view,
         ));
         app.scene_sig = sig;
     }
@@ -87,6 +95,12 @@ fn sync_scene(app: &mut TekkCamApp) {
 
 /// Frame the bounds of all visible layers (falls back to all layers).
 fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
+    if app.ui_state.show_3d_view {
+        if let Some((mn, mx)) = app.scene.bounds() {
+            app.camera.fit_bounds(mn, mx, size);
+            return;
+        }
+    }
     let mut bounds: Option<([f32; 2], [f32; 2])> = None;
     for l in app.project.layers.iter().filter(|l| l.visible) {
         if let Some((mn, mx)) = l.geometry.bounds() {
@@ -115,7 +129,6 @@ fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect
         let delta = response.drag_delta();
         app.camera.pan_pixels(delta);
     }
-
     // Zoom (scroll wheel) — only while the pointer is over the viewport
     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
     if scroll != 0.0 {
@@ -138,14 +151,21 @@ fn overlay_info(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
         .map(|screen_pos| app.camera.screen_to_world(screen_pos, rect));
 
     let zoom_level = app.camera.zoom;
+    let units = app.ui_state.display_units;
+    let factor = units.factor() as f32;
 
-    let coord_text = if let Some(pos) = cursor_world {
+    let coord_text = if app.ui_state.show_3d_view {
+        format!("3D isometric view  ·  Zoom: {:.2}×", zoom_level)
+    } else if let Some(pos) = cursor_world {
         format!(
-            "X: {:.3}  Y: {:.3}   Zoom: {:.2}×",
-            pos.x, pos.y, zoom_level
+            "X: {:.3}  Y: {:.3} {}   Zoom: {:.2}×",
+            pos.x / factor,
+            pos.y / factor,
+            units.label(),
+            zoom_level
         )
     } else {
-        format!("Zoom: {:.2}×", zoom_level)
+        format!("Zoom: {:.2}× · {}", zoom_level, units.label())
     };
 
     let font = egui::FontId::monospace(11.0);

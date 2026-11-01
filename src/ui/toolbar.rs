@@ -6,11 +6,16 @@ const SUCCESS: egui::Color32 = egui::Color32::from_rgb(60, 200, 100);
 const DANGER: egui::Color32 = egui::Color32::from_rgb(220, 70, 70);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
+        egui::Color32::from_rgb(232, 235, 242)
+    } else {
+        egui::Color32::from_rgb(14, 14, 20)
+    };
     egui::TopBottomPanel::top("toolbar")
         .exact_height(42.0)
         .frame(
             egui::Frame::new()
-                .fill(egui::Color32::from_rgb(14, 14, 20))
+                .fill(panel_bg)
                 .inner_margin(egui::Margin::symmetric(8, 6)),
         )
         .show(ctx, |ui| {
@@ -18,7 +23,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 // ── Logo / brand ──────────────────────────────────────────
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new("⚙ tekkCAM")
+                    egui::RichText::new("⚙ TekkCAM")
                         .size(16.0)
                         .color(ACCENT)
                         .strong(),
@@ -27,12 +32,24 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
                 // ── File menu ─────────────────────────────────────────────
                 ui.menu_button("File", |ui| {
+                    if ui.button("📁  Open Project…").clicked() {
+                        app.request_project_open_dialog(ctx);
+                        ui.close_menu();
+                    }
                     if ui.button("📂  Open File…").clicked() {
                         app.request_open_dialog(ctx);
                         ui.close_menu();
                     }
                     if ui.button("💾  Save Project").clicked() {
-                        app.ui_state.console_log.push("[TODO] Save project".into());
+                        if app.project_path.is_some() {
+                            app.save_project();
+                        } else {
+                            app.request_project_save_dialog(ctx);
+                        }
+                        ui.close_menu();
+                    }
+                    if ui.button("💾  Save Project As…").clicked() {
+                        app.request_project_save_dialog(ctx);
                         ui.close_menu();
                     }
                     if ui.button("📤  Export G-code…").clicked() {
@@ -47,11 +64,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
                 ui.menu_button("Edit", |ui| {
                     if ui.button("↩  Undo").clicked() {
-                        app.ui_state.console_log.push("[TODO] Undo".into());
+                        app.undo_project();
                         ui.close_menu();
                     }
                     if ui.button("↪  Redo").clicked() {
-                        app.ui_state.console_log.push("[TODO] Redo".into());
+                        app.redo_project();
                         ui.close_menu();
                     }
                     ui.separator();
@@ -70,36 +87,48 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         app.ui_state.show_grid = !app.ui_state.show_grid;
                         ui.close_menu();
                     }
+                    let view_label = if app.ui_state.show_3d_view {
+                        "✓  Isometric 3D View"
+                    } else {
+                        "▱  Isometric 3D View"
+                    };
+                    if ui.button(view_label).clicked() {
+                        app.ui_state.show_3d_view = !app.ui_state.show_3d_view;
+                        app.ui_state.request_fit = true;
+                        ui.close_menu();
+                    }
                 });
 
                 ui.menu_button("CAM", |ui| {
+                    let plugin_entries = app.operation_plugins();
                     if ui.button("〰  Isolation Routing").clicked() {
-                        app.project
-                            .operations
-                            .push(crate::cam::operations::Operation::isolation());
-                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
+                        app.add_operation(crate::cam::operations::Operation::isolation());
                         ui.close_menu();
                     }
                     if ui.button("⬡  Pocket Milling").clicked() {
-                        app.project
-                            .operations
-                            .push(crate::cam::operations::Operation::pocket());
-                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
+                        app.add_operation(crate::cam::operations::Operation::pocket());
                         ui.close_menu();
                     }
                     if ui.button("⊙  Drilling").clicked() {
-                        app.project
-                            .operations
-                            .push(crate::cam::operations::Operation::drill());
-                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
+                        app.add_operation(crate::cam::operations::Operation::drill());
                         ui.close_menu();
                     }
                     if ui.button("▭  Contour Cut").clicked() {
-                        app.project
-                            .operations
-                            .push(crate::cam::operations::Operation::contour());
-                        app.ui_state.selected_operation = Some(app.project.operations.len() - 1);
+                        app.add_operation(crate::cam::operations::Operation::contour());
                         ui.close_menu();
+                    }
+                    if !plugin_entries.is_empty() {
+                        ui.separator();
+                        ui.label("Custom operations");
+                        for (id, name) in plugin_entries {
+                            if ui.button(format!("⚙  {name}")).clicked() {
+                                app.add_operation(crate::cam::operations::Operation::custom(
+                                    id,
+                                    crate::cam::tool::Tool::default(),
+                                ));
+                                ui.close_menu();
+                            }
+                        }
                     }
                     ui.separator();
                     if ui.button("▶  Generate All").clicked() {

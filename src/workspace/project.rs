@@ -11,4 +11,6 @@ pub struct Project {
     pub operations: Vec<Operation>,
     #[serde(default)]
     pub tools: Vec<Tool>,
+    #[serde(default)]
+    pub default_tool: Tool,
 }

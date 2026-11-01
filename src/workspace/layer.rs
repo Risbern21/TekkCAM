@@ -41,6 +41,11 @@ pub struct Layer {
 }
 
 impl Layer {
+    /// Assign a process-unique id after deserializing a project.
+    pub fn assign_fresh_id(&mut self) {
+        self.id = next_id();
+    }
+
     pub fn new_placeholder() -> Self {
         Self {
             id: next_id(),
