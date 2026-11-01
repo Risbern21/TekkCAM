@@ -38,7 +38,10 @@ mod tests {
             ..Tool::default()
         };
         project.tools.push(tool.clone());
-        project.operations.push(Operation { tool: tool.clone(), ..Operation::placeholder() });
+        project.operations.push(Operation {
+            tool: tool.clone(),
+            ..Operation::placeholder()
+        });
         project.setup.stock_size_mm = [200.0, 150.0, 30.0];
         project.setup.axis = WorkAxis::ZDown;
         project.setup.material = "Aluminum".into();

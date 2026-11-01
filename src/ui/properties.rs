@@ -7,7 +7,11 @@ const MUTED: egui::Color32 = egui::Color32::from_rgb(100, 100, 120);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let mut project_changed = false;
-    let model_bounds = app.ui_state.selected_model.and_then(|i| app.project.models.get(i)).map(|m| m.bounds)
+    let model_bounds = app
+        .ui_state
+        .selected_model
+        .and_then(|i| app.project.models.get(i))
+        .map(|m| m.bounds)
         .or_else(|| app.project.models.first().map(|m| m.bounds));
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
         egui::Color32::from_rgb(242, 244, 248)
@@ -120,12 +124,27 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         egui::ComboBox::from_id_salt("operation_tool_shape")
                             .selected_text(format!("{:?}", op.tool.shape))
                             .show_ui(ui, |ui| {
-                                for shape in [crate::cam::tool::ToolShape::Flat, crate::cam::tool::ToolShape::BallNose, crate::cam::tool::ToolShape::BullNose] {
-                                    project_changed |= ui.selectable_value(&mut op.tool.shape, shape, format!("{:?}", shape)).changed();
+                                for shape in [
+                                    crate::cam::tool::ToolShape::Flat,
+                                    crate::cam::tool::ToolShape::BallNose,
+                                    crate::cam::tool::ToolShape::BullNose,
+                                ] {
+                                    project_changed |= ui
+                                        .selectable_value(
+                                            &mut op.tool.shape,
+                                            shape,
+                                            format!("{:?}", shape),
+                                        )
+                                        .changed();
                                 }
                             });
                     });
-                    for (label, value) in [("Flute length", &mut op.tool.flute_length_mm), ("Stickout", &mut op.tool.stickout_mm), ("Corner radius", &mut op.tool.corner_radius_mm), ("Holder clearance", &mut op.tool.holder_clearance_mm)] {
+                    for (label, value) in [
+                        ("Flute length", &mut op.tool.flute_length_mm),
+                        ("Stickout", &mut op.tool.stickout_mm),
+                        ("Corner radius", &mut op.tool.corner_radius_mm),
+                        ("Holder clearance", &mut op.tool.holder_clearance_mm),
+                    ] {
                         prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
                             project_changed |= unit_drag(ui, value, units, 0.1, 0.0, 300.0);
                         });
@@ -217,38 +236,101 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 section_header(ui, "STOCK & WORK SETUP");
                 ui.add_space(6.0);
                 ui.label("Stock size");
-                for (axis, value) in ["X", "Y", "Z"].into_iter().zip(setup.stock_size_mm.iter_mut()) {
-                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| { project_changed |= unit_drag(ui, value, units, 0.1, 0.1, 5000.0); });
+                for (axis, value) in ["X", "Y", "Z"]
+                    .into_iter()
+                    .zip(setup.stock_size_mm.iter_mut())
+                {
+                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
+                        project_changed |= unit_drag(ui, value, units, 0.1, 0.1, 5000.0);
+                    });
                 }
                 ui.label("Stock origin");
-                for (axis, value) in ["X", "Y", "Z"].into_iter().zip(setup.stock_origin_mm.iter_mut()) {
-                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| { project_changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0); });
+                for (axis, value) in ["X", "Y", "Z"]
+                    .into_iter()
+                    .zip(setup.stock_origin_mm.iter_mut())
+                {
+                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
+                        project_changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0);
+                    });
                 }
                 ui.label("Work origin");
-                for (axis, value) in ["X", "Y", "Z"].into_iter().zip(setup.work_origin_mm.iter_mut()) {
-                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| { project_changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0); });
+                for (axis, value) in ["X", "Y", "Z"]
+                    .into_iter()
+                    .zip(setup.work_origin_mm.iter_mut())
+                {
+                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
+                        project_changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0);
+                    });
                 }
                 prop_row(ui, "Z orientation", |ui| {
-                    egui::ComboBox::from_id_salt("setup_axis").selected_text(format!("{:?}", setup.axis)).show_ui(ui, |ui| {
-                        project_changed |= ui.selectable_value(&mut setup.axis, crate::workspace::setup::WorkAxis::ZUp, "Z up").changed();
-                        project_changed |= ui.selectable_value(&mut setup.axis, crate::workspace::setup::WorkAxis::ZDown, "Z down").changed();
-                    });
+                    egui::ComboBox::from_id_salt("setup_axis")
+                        .selected_text(format!("{:?}", setup.axis))
+                        .show_ui(ui, |ui| {
+                            project_changed |= ui
+                                .selectable_value(
+                                    &mut setup.axis,
+                                    crate::workspace::setup::WorkAxis::ZUp,
+                                    "Z up",
+                                )
+                                .changed();
+                            project_changed |= ui
+                                .selectable_value(
+                                    &mut setup.axis,
+                                    crate::workspace::setup::WorkAxis::ZDown,
+                                    "Z down",
+                                )
+                                .changed();
+                        });
                 });
-                for (label, value) in [("Safe Z", &mut setup.safe_z_mm), ("Clearance", &mut setup.clearance_mm), ("Boundary margin", &mut setup.boundary_margin_mm), ("Stepdown", &mut setup.stepdown_mm), ("Chip load", &mut setup.chip_load_mm)] {
-                    prop_row(ui, &format!("{} ({})", label, units.label()), |ui| { project_changed |= unit_drag(ui, value, units, 0.1, 0.0, 500.0); });
+                for (label, value) in [
+                    ("Safe Z", &mut setup.safe_z_mm),
+                    ("Clearance", &mut setup.clearance_mm),
+                    ("Boundary margin", &mut setup.boundary_margin_mm),
+                    ("Stepdown", &mut setup.stepdown_mm),
+                    ("Chip load", &mut setup.chip_load_mm),
+                ] {
+                    prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
+                        project_changed |= unit_drag(ui, value, units, 0.1, 0.0, 500.0);
+                    });
                 }
-                prop_row(ui, "Stepover (%)", |ui| { project_changed |= ui.add(egui::DragValue::new(&mut setup.stepover_percent).range(1.0..=95.0)).changed(); });
-                prop_row(ui, "Ramp angle (°)", |ui| { project_changed |= ui.add(egui::DragValue::new(&mut setup.ramp_angle_deg).range(0.0..=45.0)).changed(); });
-                prop_row(ui, "Material", |ui| { project_changed |= ui.text_edit_singleline(&mut setup.material).changed(); });
-                let checks = if let Some(bounds) = model_bounds { setup.validate_for(bounds, &app.project.default_tool) } else {
+                prop_row(ui, "Stepover (%)", |ui| {
+                    project_changed |= ui
+                        .add(egui::DragValue::new(&mut setup.stepover_percent).range(1.0..=95.0))
+                        .changed();
+                });
+                prop_row(ui, "Ramp angle (°)", |ui| {
+                    project_changed |= ui
+                        .add(egui::DragValue::new(&mut setup.ramp_angle_deg).range(0.0..=45.0))
+                        .changed();
+                });
+                prop_row(ui, "Material", |ui| {
+                    project_changed |= ui.text_edit_singleline(&mut setup.material).changed();
+                });
+                let checks = if let Some(bounds) = model_bounds {
+                    setup.validate_for(bounds, &app.project.default_tool)
+                } else {
                     let mut checks = Vec::new();
-                    if let Err(e) = setup.validate() { checks.push(e); }
-                    if let Err(e) = app.project.default_tool.validate() { checks.push(e); }
+                    if let Err(e) = setup.validate() {
+                        checks.push(e);
+                    }
+                    if let Err(e) = app.project.default_tool.validate() {
+                        checks.push(e);
+                    }
                     checks
                 };
                 ui.add_space(8.0);
-                if checks.is_empty() { ui.label(egui::RichText::new("Setup checks passed").color(egui::Color32::LIGHT_GREEN)); }
-                else { for check in checks { ui.label(egui::RichText::new(format!("⚠ {check}")).color(egui::Color32::YELLOW)); } }
+                if checks.is_empty() {
+                    ui.label(
+                        egui::RichText::new("Setup checks passed")
+                            .color(egui::Color32::LIGHT_GREEN),
+                    );
+                } else {
+                    for check in checks {
+                        ui.label(
+                            egui::RichText::new(format!("⚠ {check}")).color(egui::Color32::YELLOW),
+                        );
+                    }
+                }
             }
         });
     if project_changed {

@@ -553,12 +553,22 @@ impl TekkCamApp {
     }
 
     pub fn generate_operation(&mut self, index: usize) {
-        let Some(operation) = self.project.operations.get(index) else { return };
+        let Some(operation) = self.project.operations.get(index) else {
+            return;
+        };
         let mut setup_issues = Vec::new();
-        if let Err(error) = self.project.setup.validate() { setup_issues.push(error); }
-        if let Err(error) = operation.tool.validate() { setup_issues.push(error); }
+        if let Err(error) = self.project.setup.validate() {
+            setup_issues.push(error);
+        }
+        if let Err(error) = operation.tool.validate() {
+            setup_issues.push(error);
+        }
         if let Some(model) = self.project.models.iter().find(|model| model.visible) {
-            setup_issues.extend(self.project.setup.validate_for(model.bounds, &operation.tool));
+            setup_issues.extend(
+                self.project
+                    .setup
+                    .validate_for(model.bounds, &operation.tool),
+            );
         }
         if !setup_issues.is_empty() {
             let message = format!("✖ Setup validation failed: {}", setup_issues.join("; "));

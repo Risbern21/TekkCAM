@@ -28,9 +28,15 @@ pub struct Tool {
     pub holder_clearance_mm: f64,
 }
 
-fn default_flute_length() -> f64 { 12.0 }
-fn default_stickout() -> f64 { 20.0 }
-fn default_holder_clearance() -> f64 { 3.0 }
+fn default_flute_length() -> f64 {
+    12.0
+}
+fn default_stickout() -> f64 {
+    20.0
+}
+fn default_holder_clearance() -> f64 {
+    3.0
+}
 
 impl Default for Tool {
     fn default() -> Self {
@@ -51,13 +57,34 @@ impl Default for Tool {
 
 impl Tool {
     pub fn validate(&self) -> Result<(), String> {
-        if !self.diameter_mm.is_finite() || self.diameter_mm <= 0.0 { return Err("tool diameter must be positive".into()); }
-        if !self.flute_length_mm.is_finite() || self.flute_length_mm <= 0.0 { return Err("flute length must be positive".into()); }
-        if !self.stickout_mm.is_finite() || self.stickout_mm < self.flute_length_mm { return Err("stickout must be at least the flute length".into()); }
-        if !self.corner_radius_mm.is_finite() || self.corner_radius_mm < 0.0 || self.corner_radius_mm > self.diameter_mm * 0.5 { return Err("corner radius must be between zero and half the tool diameter".into()); }
-        if !self.holder_clearance_mm.is_finite() || self.holder_clearance_mm < 0.0 { return Err("holder clearance cannot be negative".into()); }
-        if !self.feed_rate_mm_min.is_finite() || self.feed_rate_mm_min <= 0.0 || !self.plunge_rate_mm_min.is_finite() || self.plunge_rate_mm_min <= 0.0 { return Err("feed and plunge rates must be positive".into()); }
-        if !self.spindle_rpm.is_finite() || self.spindle_rpm <= 0.0 { return Err("spindle speed must be positive".into()); }
+        if !self.diameter_mm.is_finite() || self.diameter_mm <= 0.0 {
+            return Err("tool diameter must be positive".into());
+        }
+        if !self.flute_length_mm.is_finite() || self.flute_length_mm <= 0.0 {
+            return Err("flute length must be positive".into());
+        }
+        if !self.stickout_mm.is_finite() || self.stickout_mm < self.flute_length_mm {
+            return Err("stickout must be at least the flute length".into());
+        }
+        if !self.corner_radius_mm.is_finite()
+            || self.corner_radius_mm < 0.0
+            || self.corner_radius_mm > self.diameter_mm * 0.5
+        {
+            return Err("corner radius must be between zero and half the tool diameter".into());
+        }
+        if !self.holder_clearance_mm.is_finite() || self.holder_clearance_mm < 0.0 {
+            return Err("holder clearance cannot be negative".into());
+        }
+        if !self.feed_rate_mm_min.is_finite()
+            || self.feed_rate_mm_min <= 0.0
+            || !self.plunge_rate_mm_min.is_finite()
+            || self.plunge_rate_mm_min <= 0.0
+        {
+            return Err("feed and plunge rates must be positive".into());
+        }
+        if !self.spindle_rpm.is_finite() || self.spindle_rpm <= 0.0 {
+            return Err("spindle speed must be positive".into());
+        }
         Ok(())
     }
 }

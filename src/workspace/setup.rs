@@ -27,38 +27,100 @@ pub struct MachiningSetup {
 
 impl Default for MachiningSetup {
     fn default() -> Self {
-        Self { stock_size_mm: [100.0, 100.0, 20.0], stock_origin_mm: [0.0; 3], work_origin_mm: [0.0; 3], axis: WorkAxis::ZUp, safe_z_mm: 5.0, clearance_mm: 2.0, boundary_margin_mm: 1.0, material: "Unknown".into(), stepdown_mm: 2.0, stepover_percent: 40.0, chip_load_mm: 0.05, ramp_angle_deg: 3.0 }
+        Self {
+            stock_size_mm: [100.0, 100.0, 20.0],
+            stock_origin_mm: [0.0; 3],
+            work_origin_mm: [0.0; 3],
+            axis: WorkAxis::ZUp,
+            safe_z_mm: 5.0,
+            clearance_mm: 2.0,
+            boundary_margin_mm: 1.0,
+            material: "Unknown".into(),
+            stepdown_mm: 2.0,
+            stepover_percent: 40.0,
+            chip_load_mm: 0.05,
+            ramp_angle_deg: 3.0,
+        }
     }
 }
 
 impl MachiningSetup {
     pub fn validate(&self) -> Result<(), String> {
-        if self.stock_size_mm.iter().any(|v| !v.is_finite() || *v <= 0.0) { return Err("stock dimensions must be positive".into()); }
-        if self.stock_origin_mm.iter().chain(self.work_origin_mm.iter()).any(|v| !v.is_finite()) { return Err("stock and work origins must be finite".into()); }
-        if !self.safe_z_mm.is_finite() || !self.clearance_mm.is_finite() || self.safe_z_mm < 0.0 || self.clearance_mm < 0.0 { return Err("safe Z and clearance must be non-negative".into()); }
-        if !self.boundary_margin_mm.is_finite() || self.boundary_margin_mm < 0.0 { return Err("machining boundary margin cannot be negative".into()); }
-        if !self.stepdown_mm.is_finite() || self.stepdown_mm <= 0.0 { return Err("stepdown must be positive".into()); }
-        if !self.stepover_percent.is_finite() || !(1.0..=95.0).contains(&self.stepover_percent) { return Err("stepover must be between 1% and 95%".into()); }
-        if !self.chip_load_mm.is_finite() || self.chip_load_mm <= 0.0 { return Err("chip load must be positive".into()); }
-        if !self.ramp_angle_deg.is_finite() || !(0.0..=45.0).contains(&self.ramp_angle_deg) { return Err("ramp angle must be between 0 and 45 degrees".into()); }
+        if self
+            .stock_size_mm
+            .iter()
+            .any(|v| !v.is_finite() || *v <= 0.0)
+        {
+            return Err("stock dimensions must be positive".into());
+        }
+        if self
+            .stock_origin_mm
+            .iter()
+            .chain(self.work_origin_mm.iter())
+            .any(|v| !v.is_finite())
+        {
+            return Err("stock and work origins must be finite".into());
+        }
+        if !self.safe_z_mm.is_finite()
+            || !self.clearance_mm.is_finite()
+            || self.safe_z_mm < 0.0
+            || self.clearance_mm < 0.0
+        {
+            return Err("safe Z and clearance must be non-negative".into());
+        }
+        if !self.boundary_margin_mm.is_finite() || self.boundary_margin_mm < 0.0 {
+            return Err("machining boundary margin cannot be negative".into());
+        }
+        if !self.stepdown_mm.is_finite() || self.stepdown_mm <= 0.0 {
+            return Err("stepdown must be positive".into());
+        }
+        if !self.stepover_percent.is_finite() || !(1.0..=95.0).contains(&self.stepover_percent) {
+            return Err("stepover must be between 1% and 95%".into());
+        }
+        if !self.chip_load_mm.is_finite() || self.chip_load_mm <= 0.0 {
+            return Err("chip load must be positive".into());
+        }
+        if !self.ramp_angle_deg.is_finite() || !(0.0..=45.0).contains(&self.ramp_angle_deg) {
+            return Err("ramp angle must be between 0 and 45 degrees".into());
+        }
         Ok(())
     }
 
-    pub fn validate_for(&self, model_bounds: [[f32; 3]; 2], tool: &crate::cam::tool::Tool) -> Vec<String> {
+    pub fn validate_for(
+        &self,
+        model_bounds: [[f32; 3]; 2],
+        tool: &crate::cam::tool::Tool,
+    ) -> Vec<String> {
         let mut issues = Vec::new();
-        if let Err(e) = self.validate() { issues.push(e); }
-        if let Err(e) = tool.validate() { issues.push(e); }
+        if let Err(e) = self.validate() {
+            issues.push(e);
+        }
+        if let Err(e) = tool.validate() {
+            issues.push(e);
+        }
         if self.validate().is_ok() {
             let smin = self.stock_origin_mm;
-            let smax = [smin[0]+self.stock_size_mm[0],smin[1]+self.stock_size_mm[1],smin[2]+self.stock_size_mm[2]];
+            let smax = [
+                smin[0] + self.stock_size_mm[0],
+                smin[1] + self.stock_size_mm[1],
+                smin[2] + self.stock_size_mm[2],
+            ];
             let (stock_z_min, stock_z_max) = match self.axis {
                 WorkAxis::ZUp => (smin[2], smax[2]),
                 WorkAxis::ZDown => (smin[2] - self.stock_size_mm[2], smin[2]),
             };
             for axis in 0..3 {
-                let (lower, upper) = if axis == 2 { (stock_z_min, stock_z_max) } else { (smin[axis], smax[axis]) };
-                if (model_bounds[0][axis] as f64) < lower || (model_bounds[1][axis] as f64) > upper {
-                    issues.push(format!("model exceeds stock on {} axis", ["X","Y","Z"][axis]));
+                let (lower, upper) = if axis == 2 {
+                    (stock_z_min, stock_z_max)
+                } else {
+                    (smin[axis], smax[axis])
+                };
+                if (model_bounds[0][axis] as f64) < lower || (model_bounds[1][axis] as f64) > upper
+                {
+                    issues.push(format!(
+                        "model exceeds stock on {} axis",
+                        ["X", "Y", "Z"][axis]
+                    ));
                 }
             }
             if tool.validate().is_ok() {
@@ -76,7 +138,10 @@ impl MachiningSetup {
                     if model_bounds[0][axis] as f64 - holder_radius < smin[axis]
                         || model_bounds[1][axis] as f64 + holder_radius > smax[axis]
                     {
-                        issues.push(format!("approximate holder envelope exceeds stock on {} axis", ["X","Y"][axis]));
+                        issues.push(format!(
+                            "approximate holder envelope exceeds stock on {} axis",
+                            ["X", "Y"][axis]
+                        ));
                     }
                 }
             }
@@ -127,7 +192,9 @@ mod tests {
         let model = [[2.0, 2.0, 0.0], [98.0, 98.0, 10.0]];
         let issues = setup.validate_for(model, &tool);
         assert!(issues.iter().any(|issue| issue.contains("flute length")));
-        assert!(issues.iter().any(|issue| issue.contains("approximate holder envelope")));
+        assert!(issues
+            .iter()
+            .any(|issue| issue.contains("approximate holder envelope")));
     }
 
     #[test]

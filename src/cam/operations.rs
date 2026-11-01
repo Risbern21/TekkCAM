@@ -268,9 +268,15 @@ mod tests {
         geometry.lines = vec![[0.0, 0.0], [10.0, 0.0]];
         let mut operation = Operation::contour();
         operation.depth_per_pass_mm = 0.0;
-        assert!(operation.generate_from_geometry(&geometry).unwrap_err().contains("depth per pass"));
+        assert!(operation
+            .generate_from_geometry(&geometry)
+            .unwrap_err()
+            .contains("depth per pass"));
         operation.depth_per_pass_mm = 0.2;
         operation.margin_mm = f64::NAN;
-        assert!(operation.generate_from_geometry(&geometry).unwrap_err().contains("margin"));
+        assert!(operation
+            .generate_from_geometry(&geometry)
+            .unwrap_err()
+            .contains("margin"));
     }
 }
