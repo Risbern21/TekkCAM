@@ -2500,6 +2500,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxideav-ifc"
+version = "0.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a5745e03e1745cb0ebe646986be3fe4c51f0a2e83334da18af46c731038a56"
+
+[[package]]
+name = "oxideav-step"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84188754d3978d3dd92977c88604400ef7f0dc405a88230ef8fa50b87f0197cb"
+dependencies = [
+ "oxideav-ifc",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3295,6 +3310,7 @@ dependencies = [
  "env_logger",
  "glam",
  "log",
+ "oxideav-step",
  "pollster",
  "rfd",
  "serde",

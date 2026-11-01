@@ -26,6 +26,8 @@ glam = "0.29"
 rfd = "0.15"
 pollster = "0.4"
 serialport = { version = "4.7", default-features = false }
+# STEP AP203/AP214/AP242 parsing, B-rep tessellation, and assembly placements (MIT).
+oxideav-step = { version = "0.0.1", default-features = false }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

@@ -98,8 +98,15 @@ impl Operation {
         geometry: &Geometry,
         plugins: &PluginRegistry,
     ) -> Result<usize, String> {
-        if self.tool.diameter_mm <= 0.0 || self.total_depth_mm <= 0.0 {
-            return Err("tool diameter and total depth must be positive".into());
+        self.tool.validate()?;
+        if !self.total_depth_mm.is_finite() || self.total_depth_mm <= 0.0 {
+            return Err("total depth must be positive".into());
+        }
+        if !self.depth_per_pass_mm.is_finite() || self.depth_per_pass_mm <= 0.0 {
+            return Err("depth per pass must be positive".into());
+        }
+        if !self.margin_mm.is_finite() || self.margin_mm < 0.0 {
+            return Err("operation margin must be non-negative".into());
         }
         let depth = -self.total_depth_mm;
         let mut path = Toolpath::default();
@@ -253,5 +260,17 @@ mod tests {
         o.generate_from_geometry(&g).unwrap();
         assert_eq!(o.toolpath.moves.len(), 4);
         assert_eq!(o.toolpath.moves[0].end(), [1.0, 0.0]);
+    }
+
+    #[test]
+    fn operation_rejects_invalid_cut_parameter_ranges() {
+        let mut geometry = Geometry::default();
+        geometry.lines = vec![[0.0, 0.0], [10.0, 0.0]];
+        let mut operation = Operation::contour();
+        operation.depth_per_pass_mm = 0.0;
+        assert!(operation.generate_from_geometry(&geometry).unwrap_err().contains("depth per pass"));
+        operation.depth_per_pass_mm = 0.2;
+        operation.margin_mm = f64::NAN;
+        assert!(operation.generate_from_geometry(&geometry).unwrap_err().contains("margin"));
     }
 }

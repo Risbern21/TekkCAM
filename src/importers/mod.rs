@@ -2,6 +2,7 @@
 pub mod dxf;
 pub mod excellon;
 pub mod gerber;
+pub mod step;
 pub mod svg;
 
 use crate::workspace::layer::{Layer, LayerKind};

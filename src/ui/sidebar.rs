@@ -111,6 +111,33 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 );
             }
 
+            if !app.project.models.is_empty() {
+                ui.add_space(8.0);
+                section_header(ui, "3D MODELS");
+                let mut changed_model = false;
+                for (index, model) in app.project.models.iter_mut().enumerate() {
+                    let label = format!(
+                        "{} · {} bodies · {}",
+                        model.name,
+                        model.bodies.len(),
+                        model.source_unit.label()
+                    );
+                    ui.horizontal(|ui| {
+                        changed_model |= ui.checkbox(&mut model.visible, "").changed();
+                        if ui
+                            .selectable_label(app.ui_state.selected_model == Some(index), label)
+                            .clicked()
+                        {
+                            app.ui_state.selected_model = Some(index);
+                            app.ui_state.request_fit = true;
+                        }
+                    });
+                }
+                if changed_model {
+                    app.ui_state.project_dirty = true;
+                }
+            }
+
             ui.add_space(12.0);
             ui.separator();
             ui.add_space(8.0);

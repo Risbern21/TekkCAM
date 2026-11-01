@@ -1,0 +1,9 @@
+# STEP import and display
+
+tekkCAM reads STEP Part 21 files with `oxideav-step` 0.0.1, a pure Rust MIT-licensed reader. Its documented schema coverage is AP203, AP203e2, AP214, and AP242. The reader tessellates supported B-rep and faceted geometry into meshes; tekkCAM stores per-triangle source face ids, representation-item ids, units, bounds, and body transforms. This is a display and downstream geometry foundation, not an editable exact B-rep.
+
+Assembly occurrences are expanded into displayed bodies. Occurrence transforms are composed through nested assemblies, applied to the imported vertices, and retained on each body. Unsupported or invalid geometry warnings reported by the reader are kept in the model import notes. Recognized length units are converted to millimeters. For an unrecognized unit, coordinate values are kept in the reader's model units and the model is marked as having unknown units.
+
+The bundled `assets/samples/three_parts_ap214.step` is from the `ruststep` 0.4.0 test corpus (Apache-2.0; attribution is retained in the source file). It exercises AP214, three disconnected bodies, and meter-to-millimeter conversion. Automated checks also cover affine placement composition and applying a placed occurrence to its mesh. The application protocols listed above are the reader's stated support; only the bundled AP214 fixture is currently verified as a full-file import in this repository.
+
+Tessellation loses exact surface and edge parameterization, tolerances, and some B-rep connectivity. Face ids are retained per triangle to preserve face association for shading and future queries, but are not a replacement for exact topology. Assemblies with unsupported placement or geometry constructs may be incomplete; warnings should be reviewed after import. Phase 7 does not provide 3D toolpath generation, and the display mesh is not sufficient by itself for safe machining.

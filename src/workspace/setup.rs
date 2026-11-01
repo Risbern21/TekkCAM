@@ -1,0 +1,141 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkAxis {
+    #[default]
+    ZUp,
+    ZDown,
+}
+
+/// Project machining setup, with all lengths stored in millimeters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MachiningSetup {
+    pub stock_size_mm: [f64; 3],
+    pub stock_origin_mm: [f64; 3],
+    pub work_origin_mm: [f64; 3],
+    pub axis: WorkAxis,
+    pub safe_z_mm: f64,
+    pub clearance_mm: f64,
+    pub boundary_margin_mm: f64,
+    pub material: String,
+    pub stepdown_mm: f64,
+    pub stepover_percent: f64,
+    pub chip_load_mm: f64,
+    pub ramp_angle_deg: f64,
+}
+
+impl Default for MachiningSetup {
+    fn default() -> Self {
+        Self { stock_size_mm: [100.0, 100.0, 20.0], stock_origin_mm: [0.0; 3], work_origin_mm: [0.0; 3], axis: WorkAxis::ZUp, safe_z_mm: 5.0, clearance_mm: 2.0, boundary_margin_mm: 1.0, material: "Unknown".into(), stepdown_mm: 2.0, stepover_percent: 40.0, chip_load_mm: 0.05, ramp_angle_deg: 3.0 }
+    }
+}
+
+impl MachiningSetup {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.stock_size_mm.iter().any(|v| !v.is_finite() || *v <= 0.0) { return Err("stock dimensions must be positive".into()); }
+        if self.stock_origin_mm.iter().chain(self.work_origin_mm.iter()).any(|v| !v.is_finite()) { return Err("stock and work origins must be finite".into()); }
+        if !self.safe_z_mm.is_finite() || !self.clearance_mm.is_finite() || self.safe_z_mm < 0.0 || self.clearance_mm < 0.0 { return Err("safe Z and clearance must be non-negative".into()); }
+        if !self.boundary_margin_mm.is_finite() || self.boundary_margin_mm < 0.0 { return Err("machining boundary margin cannot be negative".into()); }
+        if !self.stepdown_mm.is_finite() || self.stepdown_mm <= 0.0 { return Err("stepdown must be positive".into()); }
+        if !self.stepover_percent.is_finite() || !(1.0..=95.0).contains(&self.stepover_percent) { return Err("stepover must be between 1% and 95%".into()); }
+        if !self.chip_load_mm.is_finite() || self.chip_load_mm <= 0.0 { return Err("chip load must be positive".into()); }
+        if !self.ramp_angle_deg.is_finite() || !(0.0..=45.0).contains(&self.ramp_angle_deg) { return Err("ramp angle must be between 0 and 45 degrees".into()); }
+        Ok(())
+    }
+
+    pub fn validate_for(&self, model_bounds: [[f32; 3]; 2], tool: &crate::cam::tool::Tool) -> Vec<String> {
+        let mut issues = Vec::new();
+        if let Err(e) = self.validate() { issues.push(e); }
+        if let Err(e) = tool.validate() { issues.push(e); }
+        if self.validate().is_ok() {
+            let smin = self.stock_origin_mm;
+            let smax = [smin[0]+self.stock_size_mm[0],smin[1]+self.stock_size_mm[1],smin[2]+self.stock_size_mm[2]];
+            let (stock_z_min, stock_z_max) = match self.axis {
+                WorkAxis::ZUp => (smin[2], smax[2]),
+                WorkAxis::ZDown => (smin[2] - self.stock_size_mm[2], smin[2]),
+            };
+            for axis in 0..3 {
+                let (lower, upper) = if axis == 2 { (stock_z_min, stock_z_max) } else { (smin[axis], smax[axis]) };
+                if (model_bounds[0][axis] as f64) < lower || (model_bounds[1][axis] as f64) > upper {
+                    issues.push(format!("model exceeds stock on {} axis", ["X","Y","Z"][axis]));
+                }
+            }
+            if tool.validate().is_ok() {
+                let depth_into_stock = match self.axis {
+                    WorkAxis::ZUp => (stock_z_max - model_bounds[0][2] as f64).max(0.0),
+                    WorkAxis::ZDown => (smin[2] - model_bounds[0][2] as f64).max(0.0),
+                };
+                if tool.flute_length_mm < depth_into_stock {
+                    issues.push(format!("tool flute length ({:.2} mm) is shorter than required stock reach ({depth_into_stock:.2} mm)", tool.flute_length_mm));
+                }
+                // Approximate holder as a cylinder with cutter radius plus the configured
+                // radial clearance. Keep that envelope inside the stock XY footprint.
+                let holder_radius = tool.diameter_mm * 0.5 + tool.holder_clearance_mm;
+                for axis in 0..2 {
+                    if model_bounds[0][axis] as f64 - holder_radius < smin[axis]
+                        || model_bounds[1][axis] as f64 + holder_radius > smax[axis]
+                    {
+                        issues.push(format!("approximate holder envelope exceeds stock on {} axis", ["X","Y"][axis]));
+                    }
+                }
+            }
+        }
+        issues
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cam::tool::Tool;
+
+    #[test]
+    fn accepts_default_setup_and_model_inside_stock() {
+        let setup = MachiningSetup::default();
+        let model = [[10.0, 10.0, 10.0], [30.0, 30.0, 18.0]];
+        assert!(setup.validate().is_ok());
+        assert!(setup.validate_for(model, &Tool::default()).is_empty());
+    }
+
+    #[test]
+    fn rejects_invalid_ranges_and_model_outside_stock() {
+        let mut setup = MachiningSetup::default();
+        setup.stepover_percent = 100.0;
+        assert!(setup.validate().unwrap_err().contains("stepover"));
+
+        setup.stepover_percent = 40.0;
+        let model = [[-1.0, 0.0, 0.0], [101.0, 50.0, 21.0]];
+        let issues = setup.validate_for(model, &Tool::default());
+        assert!(issues.iter().any(|issue| issue.contains("X axis")));
+        assert!(issues.iter().any(|issue| issue.contains("Z axis")));
+    }
+
+    #[test]
+    fn old_setup_json_uses_defaults() {
+        let setup: MachiningSetup = serde_json::from_str("{}").unwrap();
+        assert_eq!(setup.stock_size_mm, [100.0, 100.0, 20.0]);
+        assert_eq!(setup.axis, WorkAxis::ZUp);
+    }
+
+    #[test]
+    fn checks_flute_reach_and_conservative_holder_envelope() {
+        let setup = MachiningSetup::default();
+        let mut tool = Tool::default();
+        tool.flute_length_mm = 5.0;
+        tool.stickout_mm = 5.0;
+        let model = [[2.0, 2.0, 0.0], [98.0, 98.0, 10.0]];
+        let issues = setup.validate_for(model, &tool);
+        assert!(issues.iter().any(|issue| issue.contains("flute length")));
+        assert!(issues.iter().any(|issue| issue.contains("approximate holder envelope")));
+    }
+
+    #[test]
+    fn z_down_stock_is_checked_below_its_origin() {
+        let mut setup = MachiningSetup::default();
+        setup.axis = WorkAxis::ZDown;
+        setup.stock_origin_mm[2] = 0.0;
+        let model = [[10.0, 10.0, -12.0], [30.0, 30.0, -2.0]];
+        assert!(setup.validate_for(model, &Tool::default()).is_empty());
+    }
+}

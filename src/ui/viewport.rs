@@ -71,6 +71,13 @@ fn sync_scene(app: &mut TekkCamApp) {
                 l.geometry.lines.len() as u64 + l.geometry.triangles.len() as u64,
             )
         })
+        .chain(app.project.models.iter().enumerate().map(|(i, model)| {
+            (
+                u64::MAX - i as u64,
+                model.visible,
+                model.vertices.len() as u64 + model.triangles.len() as u64,
+            )
+        }))
         .chain(
             app.project
                 .operations
@@ -81,13 +88,33 @@ fn sync_scene(app: &mut TekkCamApp) {
         .collect();
     let mut sig = sig;
     sig.push((u64::MAX, app.ui_state.show_3d_view, 0));
+    sig.push((
+        u64::MAX - 1,
+        true,
+        app.ui_state.model_orbit[0].to_bits() as u64,
+    ));
+    sig.push((
+        u64::MAX - 2,
+        true,
+        app.ui_state.model_orbit[1].to_bits() as u64,
+    ));
+    sig.push((
+        u64::MAX - 3,
+        true,
+        app.ui_state
+            .selected_model
+            .map_or(u64::MAX, |index| index as u64),
+    ));
     if sig != app.scene_sig {
         app.scene_revision += 1;
         app.scene = Arc::new(Scene::build(
             &app.project.layers,
+            &app.project.models,
             &app.project.operations,
             app.scene_revision,
             app.ui_state.show_3d_view,
+            app.ui_state.model_orbit,
+            app.ui_state.selected_model,
         ));
         app.scene_sig = sig;
     }
@@ -96,6 +123,17 @@ fn sync_scene(app: &mut TekkCamApp) {
 /// Frame the bounds of all visible layers (falls back to all layers).
 fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
     if app.ui_state.show_3d_view {
+        if let Some(model) = app
+            .ui_state
+            .selected_model
+            .and_then(|index| app.project.models.get(index))
+            .filter(|model| model.visible)
+        {
+            let (min, max) =
+                crate::renderer::pipeline::projected_model_bounds(model, app.ui_state.model_orbit);
+            app.camera.fit_bounds(min, max, size);
+            return;
+        }
         if let Some((mn, mx)) = app.scene.bounds() {
             app.camera.fit_bounds(mn, mx, size);
             return;
@@ -104,6 +142,19 @@ fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
     let mut bounds: Option<([f32; 2], [f32; 2])> = None;
     for l in app.project.layers.iter().filter(|l| l.visible) {
         if let Some((mn, mx)) = l.geometry.bounds() {
+            bounds = Some(match bounds {
+                None => (mn, mx),
+                Some((a, b)) => (
+                    [a[0].min(mn[0]), a[1].min(mn[1])],
+                    [b[0].max(mx[0]), b[1].max(mx[1])],
+                ),
+            });
+        }
+    }
+    if app.ui_state.show_3d_view {
+        for model in app.project.models.iter().filter(|model| model.visible) {
+            let mn = [model.bounds[0][0], model.bounds[0][1]];
+            let mx = [model.bounds[1][0], model.bounds[1][1]];
             bounds = Some(match bounds {
                 None => (mn, mx),
                 Some((a, b)) => (
@@ -129,6 +180,13 @@ fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect
         let delta = response.drag_delta();
         app.camera.pan_pixels(delta);
     }
+    if app.ui_state.show_3d_view && response.dragged_by(egui::PointerButton::Secondary) {
+        let delta = response.drag_delta();
+        app.ui_state.model_orbit[0] += delta.x * 0.008;
+        app.ui_state.model_orbit[1] =
+            (app.ui_state.model_orbit[1] + delta.y * 0.008).clamp(-0.5, 1.2);
+    }
+
     // Zoom (scroll wheel) — only while the pointer is over the viewport
     let scroll = ui.input(|i| i.smooth_scroll_delta.y);
     if scroll != 0.0 {
@@ -189,7 +247,11 @@ fn overlay_info(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
     );
 
     // Hint text (bottom-right)
-    let hint = "Scroll: zoom  |  Drag: pan";
+    let hint = if app.ui_state.show_3d_view {
+        "Scroll: zoom  |  Drag: pan  |  Right drag: orbit"
+    } else {
+        "Scroll: zoom  |  Drag: pan"
+    };
     let hint_pos = egui::pos2(rect.right() - 8.0, rect.bottom() - 8.0);
     painter.text(
         hint_pos,

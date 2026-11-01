@@ -181,6 +181,7 @@ impl ProjectHistory {
 /// Transient UI state not serialised to disk
 pub struct UiState {
     pub selected_layer: Option<usize>,
+    pub selected_model: Option<usize>,
     pub selected_operation: Option<usize>,
     pub show_settings: bool,
     pub console_input: String,
@@ -189,6 +190,7 @@ pub struct UiState {
     pub machine_connected: bool,
     pub show_grid: bool,
     pub show_3d_view: bool,
+    pub model_orbit: [f32; 2],
     pub display_units: DisplayUnits,
     pub theme: AppTheme,
     pub project_dirty: bool,
@@ -243,6 +245,7 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             selected_layer: None,
+            selected_model: None,
             selected_operation: None,
             show_settings: false,
             console_input: String::new(),
@@ -254,6 +257,7 @@ impl Default for UiState {
             machine_connected: false,
             show_grid: true,
             show_3d_view: false,
+            model_orbit: [0.0, 0.0],
             display_units: DisplayUnits::default(),
             theme: AppTheme::Dark,
             project_dirty: false,
@@ -486,6 +490,40 @@ impl TekkCamApp {
     /// Load a design file as a new layer, reporting progress in the console.
     pub fn import_file(&mut self, path: &std::path::Path) {
         let path_str = path.to_string_lossy().to_string();
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "step" | "stp"))
+        {
+            match crate::importers::step::parse(&path_str) {
+                Ok(model) => {
+                    let name = model.name.clone();
+                    let face_count = model.triangles.len();
+                    let body_count = model.bodies.len();
+                    let schemas = model.source_schema.join(", ");
+                    let import_notes = model.import_notes.clone();
+                    self.project.models.push(model);
+                    self.ui_state.selected_model = Some(self.project.models.len() - 1);
+                    self.ui_state.show_3d_view = true;
+                    self.ui_state.console_log.push(format!(
+                        "✔ Imported STEP model {name} ({schemas}): {body_count} bodies, {face_count} tessellated faces"
+                    ));
+                    self.ui_state
+                        .console_log
+                        .extend(import_notes.into_iter().map(|note| format!("  ⚠ {note}")));
+                    self.ui_state.status_message = format!("Loaded STEP model {name}");
+                    self.ui_state.project_dirty = true;
+                    self.ui_state.request_fit = true;
+                }
+                Err(error) => {
+                    self.ui_state
+                        .console_log
+                        .push(format!("✖ Failed to import STEP {path_str}: {error}"));
+                    self.ui_state.status_message = "STEP import failed".into();
+                }
+            }
+            return;
+        }
         match crate::importers::load_layer(&path_str, self.project.layers.len()) {
             Ok((layer, notes)) => {
                 let log = &mut self.ui_state.console_log;
@@ -515,6 +553,19 @@ impl TekkCamApp {
     }
 
     pub fn generate_operation(&mut self, index: usize) {
+        let Some(operation) = self.project.operations.get(index) else { return };
+        let mut setup_issues = Vec::new();
+        if let Err(error) = self.project.setup.validate() { setup_issues.push(error); }
+        if let Err(error) = operation.tool.validate() { setup_issues.push(error); }
+        if let Some(model) = self.project.models.iter().find(|model| model.visible) {
+            setup_issues.extend(self.project.setup.validate_for(model.bounds, &operation.tool));
+        }
+        if !setup_issues.is_empty() {
+            let message = format!("✖ Setup validation failed: {}", setup_issues.join("; "));
+            self.ui_state.console_log.push(message.clone());
+            self.ui_state.status_message = message;
+            return;
+        }
         let geometry = self
             .project
             .layers
@@ -579,7 +630,7 @@ impl TekkCamApp {
                 "All supported",
                 &[
                     "gbr", "ger", "gtl", "gbl", "gts", "gbs", "gtp", "gbp", "gto", "gbo", "gko",
-                    "gm1", "drl", "exc", "xln", "dxf", "svg", "txt",
+                    "gm1", "drl", "exc", "xln", "dxf", "svg", "txt", "step", "stp",
                 ],
             )
             .add_filter(
@@ -592,6 +643,7 @@ impl TekkCamApp {
             .add_filter("Excellon drill", &["drl", "exc", "xln", "txt"])
             .add_filter("DXF", &["dxf"])
             .add_filter("SVG", &["svg"])
+            .add_filter("STEP models", &["step", "stp"])
             .pick_files();
         std::thread::spawn(move || {
             let files = pollster::block_on(dialog).map(|handles| {
@@ -714,6 +766,7 @@ impl TekkCamApp {
                 self.project_path = Some(path.clone());
                 self.scene_sig.clear();
                 self.ui_state.selected_layer = None;
+                self.ui_state.selected_model = None;
                 self.ui_state.selected_operation = None;
                 self.ui_state.request_fit = true;
                 self.ui_state.gcode_text.clear();

@@ -8,7 +8,7 @@ use crate::{
         operations::Operation,
         toolpath::{MoveKind, ToolMove},
     },
-    workspace::layer::Layer,
+    workspace::{layer::Layer, model::Model},
 };
 
 #[repr(C)]
@@ -29,7 +29,15 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn build(layers: &[Layer], operations: &[Operation], revision: u64, view_3d: bool) -> Self {
+    pub fn build(
+        layers: &[Layer],
+        models: &[Model],
+        operations: &[Operation],
+        revision: u64,
+        view_3d: bool,
+        orbit: [f32; 2],
+        selected_model: Option<usize>,
+    ) -> Self {
         let mut scene = Scene {
             revision,
             ..Default::default()
@@ -39,13 +47,106 @@ impl Scene {
             scene
                 .triangles
                 .extend(l.geometry.triangles.iter().map(|p| Vertex {
-                    pos: project_point(p[0], p[1], 0.0, view_3d),
+                    pos: project_point(p[0], p[1], 0.0, view_3d, orbit),
                     color,
                 }));
             scene.lines.extend(l.geometry.lines.iter().map(|p| Vertex {
-                pos: project_point(p[0], p[1], 0.0, view_3d),
+                pos: project_point(p[0], p[1], 0.0, view_3d, orbit),
                 color,
             }));
+        }
+        for (model_index, model) in models
+            .iter()
+            .enumerate()
+            .filter(|(_, model)| view_3d && model.visible)
+        {
+            // Painter-sort triangles from far to near. This gives useful opaque
+            // shaded solids while the viewport still uses its shared 2D pass.
+            let model_faces: Vec<[u32; 3]> = if model.bodies.is_empty() {
+                model.triangles.clone()
+            } else {
+                model
+                    .bodies
+                    .iter()
+                    .filter_map(|body| {
+                        model
+                            .triangles
+                            .get(body.first_triangle..body.first_triangle + body.triangle_count)
+                    })
+                    .flatten()
+                    .copied()
+                    .collect()
+            };
+            let mut faces: Vec<_> = model_faces
+                .iter()
+                .map(|face| {
+                    let points = face.map(|index| model.vertices[index as usize]);
+                    let depth = points
+                        .iter()
+                        .map(|p| camera_point(*p, orbit)[2])
+                        .sum::<f32>()
+                        / 3.0;
+                    (depth, points)
+                })
+                .collect();
+            faces.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for (_, points) in faces {
+                let u = [
+                    points[1][0] - points[0][0],
+                    points[1][1] - points[0][1],
+                    points[1][2] - points[0][2],
+                ];
+                let v = [
+                    points[2][0] - points[0][0],
+                    points[2][1] - points[0][1],
+                    points[2][2] - points[0][2],
+                ];
+                let normal = [
+                    u[1] * v[2] - u[2] * v[1],
+                    u[2] * v[0] - u[0] * v[2],
+                    u[0] * v[1] - u[1] * v[0],
+                ];
+                let magnitude =
+                    (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+                        .sqrt()
+                        .max(1e-8);
+                let light = (normal[0] * 0.3 + normal[1] * 0.5 + normal[2] * 0.8) / magnitude;
+                let shade = 0.28 + 0.72 * light.max(0.0);
+                let base = if selected_model == Some(model_index) {
+                    [0.95, 0.65, 0.28]
+                } else {
+                    [0.55, 0.68, 0.82]
+                };
+                let color = [base[0] * shade, base[1] * shade, base[2] * shade, 1.0];
+                for point in points {
+                    scene.triangles.push(Vertex {
+                        pos: project_point(point[0], point[1], point[2], view_3d, orbit),
+                        color,
+                    });
+                }
+            }
+        }
+        if view_3d {
+            if let Some(model) = models.iter().find(|model| model.visible) {
+                let extent = (0..3)
+                    .map(|axis| (model.bounds[1][axis] - model.bounds[0][axis]).abs())
+                    .fold(1.0_f32, f32::max)
+                    * 0.6;
+                for (end, color) in [
+                    ([extent, 0.0, 0.0], [0.95, 0.3, 0.3, 1.0]),
+                    ([0.0, extent, 0.0], [0.35, 0.85, 0.4, 1.0]),
+                    ([0.0, 0.0, extent], [0.35, 0.6, 1.0, 1.0]),
+                ] {
+                    scene.lines.push(Vertex {
+                        pos: project_point(0.0, 0.0, 0.0, true, orbit),
+                        color,
+                    });
+                    scene.lines.push(Vertex {
+                        pos: project_point(end[0], end[1], end[2], true, orbit),
+                        color,
+                    });
+                }
+            }
         }
         for op in operations.iter().filter(|op| op.generated) {
             let colour = |kind| match kind {
@@ -65,11 +166,11 @@ impl Scene {
                 let p = [end[0] as f32, end[1] as f32, z as f32];
                 if let Some(start) = previous {
                     scene.toolpaths.push(Vertex {
-                        pos: project_point(start[0], start[1], start[2], view_3d),
+                        pos: project_point(start[0], start[1], start[2], view_3d, orbit),
                         color: colour(mv.kind()),
                     });
                     scene.toolpaths.push(Vertex {
-                        pos: project_point(p[0], p[1], p[2], view_3d),
+                        pos: project_point(p[0], p[1], p[2], view_3d, orbit),
                         color: colour(mv.kind()),
                     });
                 }
@@ -96,13 +197,40 @@ impl Scene {
     }
 }
 
-fn project_point(x: f32, y: f32, z: f32, view_3d: bool) -> [f32; 2] {
+pub fn projected_model_bounds(model: &Model, orbit: [f32; 2]) -> ([f32; 2], [f32; 2]) {
+    let mut min = [f32::INFINITY; 2];
+    let mut max = [f32::NEG_INFINITY; 2];
+    for x in [model.bounds[0][0], model.bounds[1][0]] {
+        for y in [model.bounds[0][1], model.bounds[1][1]] {
+            for z in [model.bounds[0][2], model.bounds[1][2]] {
+                let point = project_point(x, y, z, true, orbit);
+                for axis in 0..2 {
+                    min[axis] = min[axis].min(point[axis]);
+                    max[axis] = max[axis].max(point[axis]);
+                }
+            }
+        }
+    }
+    (min, max)
+}
+
+fn project_point(x: f32, y: f32, z: f32, view_3d: bool, orbit: [f32; 2]) -> [f32; 2] {
     if view_3d {
-        const DIAG: f32 = 0.70710677;
-        [((x - y) * DIAG), ((x + y) * 0.4082483 - z * 0.8164966)]
+        let camera = camera_point([x, y, z], orbit);
+        [camera[0], camera[1]]
     } else {
         [x, y]
     }
+}
+
+fn camera_point(point: [f32; 3], orbit: [f32; 2]) -> [f32; 3] {
+    let yaw = std::f32::consts::FRAC_PI_4 + orbit[0];
+    let pitch = (35.264_f32.to_radians() + orbit[1]).clamp(0.05, 1.52);
+    let (sy, cy) = yaw.sin_cos();
+    let (sp, cp) = pitch.sin_cos();
+    let x = point[0] * cy - point[1] * sy;
+    let y = point[0] * sy + point[1] * cy;
+    [x, y * sp + point[2] * cp, y * cp - point[2] * sp]
 }
 
 pub struct GeometryRenderer {
@@ -125,11 +253,12 @@ mod tests {
 
     #[test]
     fn isometric_projection_includes_tool_depth() {
-        let surface = project_point(4.0, 2.0, 0.0, true);
-        let cut = project_point(4.0, 2.0, -3.0, true);
+        let surface = project_point(4.0, 2.0, 0.0, true, [0.0, 0.0]);
+        let cut = project_point(4.0, 2.0, -3.0, true, [0.0, 0.0]);
         assert_eq!(surface[0], cut[0]);
-        assert!(cut[1] > surface[1]);
-        assert_eq!(project_point(4.0, 2.0, -3.0, false), [4.0, 2.0]);
+        // Negative CNC Z is below the work plane and projects downward in the view.
+        assert!(cut[1] < surface[1]);
+        assert_eq!(project_point(4.0, 2.0, -3.0, false, [0.0, 0.0]), [4.0, 2.0]);
     }
 }
 
