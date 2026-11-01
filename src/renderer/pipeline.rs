@@ -29,12 +29,7 @@ pub struct Scene {
 }
 
 impl Scene {
-    pub fn build(
-        layers: &[Layer],
-        operations: &[Operation],
-        revision: u64,
-        view_3d: bool,
-    ) -> Self {
+    pub fn build(layers: &[Layer], operations: &[Operation], revision: u64, view_3d: bool) -> Self {
         let mut scene = Scene {
             revision,
             ..Default::default()
