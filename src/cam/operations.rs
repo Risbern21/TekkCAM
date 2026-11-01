@@ -14,6 +14,11 @@ pub enum OperationKind {
     Pocket,
     Drill,
     Contour,
+    ModelProfile2D,
+    Roughing3D,
+    FinishRaster3D,
+    FinishContour3D,
+    FinishWaterline3D,
     Placeholder,
     Custom(String),
 }
@@ -26,6 +31,10 @@ pub struct Operation {
     pub depth_per_pass_mm: f64,
     pub total_depth_mm: f64,
     pub margin_mm: f64,
+    #[serde(default)]
+    pub source_layer_id: Option<u64>,
+    #[serde(default)]
+    pub source_face_ids: Vec<u64>,
     pub generated: bool,
     #[serde(default)]
     pub toolpath: Toolpath,
@@ -42,6 +51,8 @@ impl Operation {
             depth_per_pass_mm: 0.2,
             total_depth_mm: 1.6,
             margin_mm: 0.0,
+            source_layer_id: None,
+            source_face_ids: Vec::new(),
             generated: false,
             toolpath: Toolpath::default(),
             plugin_parameters: Vec::new(),
@@ -80,6 +91,46 @@ impl Operation {
         }
     }
 
+    pub fn model_profile_2d() -> Self {
+        Self {
+            name: "STEP Face Profile".into(),
+            kind: OperationKind::ModelProfile2D,
+            ..Self::placeholder()
+        }
+    }
+
+    pub fn roughing_3d() -> Self {
+        Self {
+            name: "3D Stock Roughing".into(),
+            kind: OperationKind::Roughing3D,
+            ..Self::placeholder()
+        }
+    }
+
+    pub fn finish_raster_3d() -> Self {
+        Self {
+            name: "3D Raster Finish".into(),
+            kind: OperationKind::FinishRaster3D,
+            ..Self::placeholder()
+        }
+    }
+
+    pub fn finish_contour_3d() -> Self {
+        Self {
+            name: "3D Contour-Parallel Finish".into(),
+            kind: OperationKind::FinishContour3D,
+            ..Self::placeholder()
+        }
+    }
+
+    pub fn finish_waterline_3d() -> Self {
+        Self {
+            name: "3D Waterline Finish".into(),
+            kind: OperationKind::FinishWaterline3D,
+            ..Self::placeholder()
+        }
+    }
+
     pub fn custom(id: impl Into<String>, tool: Tool) -> Self {
         Self {
             name: "Custom Operation".into(),
@@ -108,6 +159,12 @@ impl Operation {
         if !self.margin_mm.is_finite() || self.margin_mm < 0.0 {
             return Err("operation margin must be non-negative".into());
         }
+        if self.kind == OperationKind::Drill && geometry.drills.is_empty() {
+            return Err("selected geometry contains no drill hits".into());
+        }
+        if self.kind == OperationKind::ModelProfile2D && geometry.lines.is_empty() {
+            return Err("selected geometry contains no profile edges".into());
+        }
         let depth = -self.total_depth_mm;
         let mut path = Toolpath::default();
         match &self.kind {
@@ -129,6 +186,23 @@ impl Operation {
                     matches!(&self.kind, OperationKind::Isolation),
                     self.depth_per_pass_mm,
                 )
+            }
+            OperationKind::ModelProfile2D => generate_lines(
+                &mut path,
+                geometry,
+                depth,
+                &self.tool,
+                self.margin_mm + self.tool.diameter_mm * 0.5,
+                false,
+                self.depth_per_pass_mm,
+            ),
+            OperationKind::Roughing3D => {
+                return Err("3D roughing requires an imported STEP model".into());
+            }
+            OperationKind::FinishRaster3D
+            | OperationKind::FinishContour3D
+            | OperationKind::FinishWaterline3D => {
+                return Err("3D finishing requires an imported STEP model".into());
             }
             OperationKind::Custom(id) => {
                 let plugin = plugins

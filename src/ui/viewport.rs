@@ -16,17 +16,16 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             let rect = ui.available_rect_before_wrap();
             app.ui_state.viewport_size = rect.size();
 
-            // Rebuild the CPU scene if layers/visibility changed
-            sync_scene(app);
+            // Apply orbit input first so the scene builder can use its bounded
+            // preview mesh while a right-button drag is active.
+            let orbit_preview = handle_camera_input(ui, app, rect);
+            sync_scene(app, orbit_preview);
 
             // Frame all geometry on request
             if app.ui_state.request_fit {
                 app.ui_state.request_fit = false;
                 fit_to_geometry(app, rect.size());
             }
-
-            // Handle pan / zoom input before rendering
-            handle_camera_input(ui, app, rect);
 
             // Overlay coordinate display (top-left of viewport)
             overlay_info(ui, app, rect);
@@ -59,7 +58,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 }
 
 /// Rebuild `app.scene` when the set of visible layers changes.
-fn sync_scene(app: &mut TekkCamApp) {
+fn sync_scene(app: &mut TekkCamApp, orbit_preview: bool) {
     let sig: Vec<(u64, bool, u64)> = app
         .project
         .layers
@@ -88,6 +87,7 @@ fn sync_scene(app: &mut TekkCamApp) {
         .collect();
     let mut sig = sig;
     sig.push((u64::MAX, app.ui_state.show_3d_view, 0));
+    sig.push((u64::MAX - 4, orbit_preview, 0));
     sig.push((
         u64::MAX - 1,
         true,
@@ -115,6 +115,7 @@ fn sync_scene(app: &mut TekkCamApp) {
             app.ui_state.show_3d_view,
             app.ui_state.model_orbit,
             app.ui_state.selected_model,
+            orbit_preview,
         ));
         app.scene_sig = sig;
     }
@@ -170,7 +171,7 @@ fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
 }
 
 /// Handle mouse pan and scroll-wheel zoom in the viewport.
-fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
+fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) -> bool {
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
 
     // Pan (middle-mouse drag OR left drag with no selection intent)
@@ -180,7 +181,9 @@ fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect
         let delta = response.drag_delta();
         app.camera.pan_pixels(delta);
     }
-    if app.ui_state.show_3d_view && response.dragged_by(egui::PointerButton::Secondary) {
+    let orbit_preview =
+        app.ui_state.show_3d_view && response.dragged_by(egui::PointerButton::Secondary);
+    if orbit_preview {
         let delta = response.drag_delta();
         app.ui_state.model_orbit[0] += delta.x * 0.008;
         app.ui_state.model_orbit[1] =
@@ -197,6 +200,7 @@ fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect
             }
         }
     }
+    orbit_preview
 }
 
 /// Draw an overlay with the cursor world position, zoom level, and viewport hints.

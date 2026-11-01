@@ -117,6 +117,26 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         app.add_operation(crate::cam::operations::Operation::contour());
                         ui.close_menu();
                     }
+                    if ui.button("⌑  STEP Face Profile").clicked() {
+                        app.add_operation(crate::cam::operations::Operation::model_profile_2d());
+                        ui.close_menu();
+                    }
+                    if ui.button("▦  3D Stock Roughing").clicked() {
+                        app.add_operation(crate::cam::operations::Operation::roughing_3d());
+                        ui.close_menu();
+                    }
+                    if ui.button("〰  3D Raster Finish").clicked() {
+                        app.add_operation(crate::cam::operations::Operation::finish_raster_3d());
+                        ui.close_menu();
+                    }
+                    if ui.button("◎  3D Contour-Parallel Finish").clicked() {
+                        app.add_operation(crate::cam::operations::Operation::finish_contour_3d());
+                        ui.close_menu();
+                    }
+                    if ui.button("≋  3D Waterline Finish").clicked() {
+                        app.add_operation(crate::cam::operations::Operation::finish_waterline_3d());
+                        ui.close_menu();
+                    }
                     if !plugin_entries.is_empty() {
                         ui.separator();
                         ui.label("Custom operations");

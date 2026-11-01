@@ -85,6 +85,109 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         ui.label(egui::RichText::new(format!("{:?}", op.kind)).color(ACCENT));
                     });
 
+                    if matches!(
+                        &op.kind,
+                        crate::cam::operations::OperationKind::ModelProfile2D
+                    ) {
+                        let model_index = app
+                            .ui_state
+                            .selected_model
+                            .filter(|index| {
+                                app.project
+                                    .models
+                                    .get(*index)
+                                    .is_some_and(|model| model.visible)
+                            })
+                            .or_else(|| app.project.models.iter().position(|model| model.visible));
+                        if let Some(model) =
+                            model_index.and_then(|index| app.project.models.get(index))
+                        {
+                            let mut face_ids: Vec<u64> = model
+                                .bodies
+                                .iter()
+                                .flat_map(|body| body.triangle_face_ids.iter().copied())
+                                .collect();
+                            face_ids.sort_unstable();
+                            face_ids.dedup();
+                            ui.label(format!("STEP model: {}", model.name));
+                            egui::CollapsingHeader::new(format!(
+                                "Select faces ({} selected)",
+                                op.source_face_ids.len()
+                            ))
+                            .show(ui, |ui| {
+                                for face_id in face_ids {
+                                    let mut selected = op.source_face_ids.contains(&face_id);
+                                    if ui
+                                        .checkbox(&mut selected, format!("Face {face_id}"))
+                                        .changed()
+                                    {
+                                        if selected {
+                                            op.source_face_ids.push(face_id);
+                                        } else {
+                                            op.source_face_ids.retain(|id| *id != face_id);
+                                        }
+                                        project_changed = true;
+                                    }
+                                }
+                            });
+                        } else {
+                            ui.label(
+                                egui::RichText::new("Import and select a STEP model first.")
+                                    .color(MUTED),
+                            );
+                        }
+                    } else if !matches!(
+                        &op.kind,
+                        crate::cam::operations::OperationKind::Roughing3D
+                            | crate::cam::operations::OperationKind::FinishRaster3D
+                            | crate::cam::operations::OperationKind::FinishContour3D
+                            | crate::cam::operations::OperationKind::FinishWaterline3D
+                    ) {
+                        let sources: Vec<(u64, String, bool)> = app
+                            .project
+                            .layers
+                            .iter()
+                            .map(|layer| (layer.id, layer.name.clone(), layer.visible))
+                            .collect();
+                        let selected_text = op
+                            .source_layer_id
+                            .and_then(|id| sources.iter().find(|source| source.0 == id))
+                            .map(|source| source.1.as_str())
+                            .unwrap_or("Auto (first visible layer)");
+                        prop_row(ui, "Geometry source", |ui| {
+                            egui::ComboBox::from_id_salt(("operation_source", idx))
+                                .selected_text(selected_text)
+                                .show_ui(ui, |ui| {
+                                    if ui
+                                        .selectable_value(
+                                            &mut op.source_layer_id,
+                                            None,
+                                            "Auto (first visible layer)",
+                                        )
+                                        .changed()
+                                    {
+                                        project_changed = true;
+                                    }
+                                    for (id, name, visible) in &sources {
+                                        if ui
+                                            .selectable_value(
+                                                &mut op.source_layer_id,
+                                                Some(*id),
+                                                format!(
+                                                    "{}{}",
+                                                    name,
+                                                    if *visible { "" } else { " (hidden)" }
+                                                ),
+                                            )
+                                            .changed()
+                                        {
+                                            project_changed = true;
+                                        }
+                                    }
+                                });
+                        });
+                    }
+
                     ui.add_space(8.0);
                     section_header(ui, "TOOL");
                     ui.add_space(4.0);
@@ -154,17 +257,41 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     section_header(ui, "CUT PARAMETERS");
                     ui.add_space(4.0);
 
-                    prop_row(ui, &format!("Depth/Pass ({})", units.label()), |ui| {
-                        project_changed |=
-                            unit_drag(ui, &mut op.depth_per_pass_mm, units, 0.01, 0.01, 10.0);
-                    });
+                    let is_roughing =
+                        matches!(&op.kind, crate::cam::operations::OperationKind::Roughing3D);
+                    let is_3d_machining = is_roughing
+                        || matches!(
+                            &op.kind,
+                            crate::cam::operations::OperationKind::FinishRaster3D
+                                | crate::cam::operations::OperationKind::FinishContour3D
+                                | crate::cam::operations::OperationKind::FinishWaterline3D
+                        );
+                    if is_3d_machining {
+                        ui.label(
+                            egui::RichText::new("Pass spacing uses the project stock setup.")
+                                .size(11.0)
+                                .color(MUTED),
+                        );
+                    } else {
+                        prop_row(ui, &format!("Depth/Pass ({})", units.label()), |ui| {
+                            project_changed |=
+                                unit_drag(ui, &mut op.depth_per_pass_mm, units, 0.01, 0.01, 10.0);
+                        });
 
-                    prop_row(ui, &format!("Total Depth ({})", units.label()), |ui| {
-                        project_changed |=
-                            unit_drag(ui, &mut op.total_depth_mm, units, 0.01, 0.01, 50.0);
-                    });
+                        prop_row(ui, &format!("Total Depth ({})", units.label()), |ui| {
+                            project_changed |=
+                                unit_drag(ui, &mut op.total_depth_mm, units, 0.01, 0.01, 50.0);
+                        });
+                    }
 
-                    prop_row(ui, &format!("Margin ({})", units.label()), |ui| {
+                    let margin_label = if is_roughing {
+                        "Roughing allowance"
+                    } else if is_3d_machining {
+                        "Finishing allowance"
+                    } else {
+                        "Margin"
+                    };
+                    prop_row(ui, &format!("{} ({})", margin_label, units.label()), |ui| {
                         project_changed |= unit_drag(ui, &mut op.margin_mm, units, 0.01, 0.0, 5.0);
                     });
 

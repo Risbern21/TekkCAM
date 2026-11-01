@@ -30,6 +30,7 @@ pub fn generate(operations: &[Operation], dialect: Dialect) -> Result<String, St
         "G17".into(),
         "G94".into(),
     ];
+    let mut final_safe_z = 5.0_f64;
     for (index, op) in generated.iter().enumerate() {
         out.push(format!("\n( {} - {} )", op.name, op.tool.name));
         if dialect == Dialect::LinuxCnc {
@@ -42,9 +43,11 @@ pub fn generate(operations: &[Operation], dialect: Dialect) -> Result<String, St
             match movement {
                 ToolMove::Rapid { to, z } => {
                     // Retract before traversing so a rapid does not sweep through stock.
-                    out.push("G0 Z5.000".into());
+                    let retract_z = 5.0_f64.max(*z);
+                    final_safe_z = final_safe_z.max(retract_z);
+                    out.push(format!("G0 Z{}", fmt(retract_z)));
                     out.push(format!("G0 X{} Y{}", fmt(to[0]), fmt(to[1])));
-                    if *z > 0.0 {
+                    if *z > retract_z {
                         out.push(format!("G0 Z{}", fmt(*z)));
                     }
                 }
@@ -87,11 +90,28 @@ pub fn generate(operations: &[Operation], dialect: Dialect) -> Result<String, St
             out.push("M5".into());
         }
     }
-    out.extend(["G0 Z5.000".into(), "M30".into()]);
+    out.extend([format!("G0 Z{}", fmt(final_safe_z)), "M30".into()]);
     Ok(out.join("\n") + "\n")
 }
 
 fn fmt(value: f64) -> String {
     let value = if value.abs() < 0.0005 { 0.0 } else { value };
     format!("{value:.3}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cam::{operations::Operation, toolpath::Toolpath};
+
+    #[test]
+    fn rapid_retract_uses_the_requested_stock_clearance_height() {
+        let mut operation = Operation::contour();
+        operation.generated = true;
+        operation.toolpath = Toolpath::default();
+        operation.toolpath.push_rapid([12.0, 7.0], 27.0);
+        let code = generate(&[operation], Dialect::Grbl).unwrap();
+        assert!(code.contains("G0 Z27.000\nG0 X12.000 Y7.000"));
+        assert!(code.ends_with("G0 Z27.000\nM30\n"));
+    }
 }

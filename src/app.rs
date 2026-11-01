@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     path::PathBuf,
     sync::{
-        mpsc::{self, Receiver},
+        mpsc::{self, Receiver, Sender},
         Arc,
     },
 };
@@ -39,6 +39,9 @@ pub struct TekkCamApp {
     project_history: ProjectHistory,
     preferences: AppPreferences,
     plugin_registry: crate::cam::plugin::PluginRegistry,
+    step_import_tx: Sender<(PathBuf, Result<crate::workspace::model::Model, String>)>,
+    step_import_rx: Receiver<(PathBuf, Result<crate::workspace::model::Model, String>)>,
+    step_imports_pending: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,6 +193,8 @@ pub struct UiState {
     pub machine_connected: bool,
     pub show_grid: bool,
     pub show_3d_view: bool,
+    pub show_left_sidebar: bool,
+    pub show_right_sidebar: bool,
     pub model_orbit: [f32; 2],
     pub display_units: DisplayUnits,
     pub theme: AppTheme,
@@ -257,6 +262,8 @@ impl Default for UiState {
             machine_connected: false,
             show_grid: true,
             show_3d_view: false,
+            show_left_sidebar: true,
+            show_right_sidebar: true,
             model_orbit: [0.0, 0.0],
             display_units: DisplayUnits::default(),
             theme: AppTheme::Dark,
@@ -307,6 +314,7 @@ impl TekkCamApp {
             log::warn!("No wgpu render state — GPU viewport unavailable");
         }
 
+        let (step_import_tx, step_import_rx) = mpsc::channel();
         let mut app = Self {
             project: Project::default(),
             ui_state: UiState::default(),
@@ -319,6 +327,9 @@ impl TekkCamApp {
             project_history: ProjectHistory::new(&Project::default()),
             preferences,
             plugin_registry: crate::cam::plugin::PluginRegistry::default(),
+            step_import_tx,
+            step_import_rx,
+            step_imports_pending: 0,
         };
         app.ui_state.display_units = app.preferences.display_units;
         app.ui_state.theme = app.preferences.theme;
@@ -495,33 +506,15 @@ impl TekkCamApp {
             .and_then(|ext| ext.to_str())
             .is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "step" | "stp"))
         {
-            match crate::importers::step::parse(&path_str) {
-                Ok(model) => {
-                    let name = model.name.clone();
-                    let face_count = model.triangles.len();
-                    let body_count = model.bodies.len();
-                    let schemas = model.source_schema.join(", ");
-                    let import_notes = model.import_notes.clone();
-                    self.project.models.push(model);
-                    self.ui_state.selected_model = Some(self.project.models.len() - 1);
-                    self.ui_state.show_3d_view = true;
-                    self.ui_state.console_log.push(format!(
-                        "✔ Imported STEP model {name} ({schemas}): {body_count} bodies, {face_count} tessellated faces"
-                    ));
-                    self.ui_state
-                        .console_log
-                        .extend(import_notes.into_iter().map(|note| format!("  ⚠ {note}")));
-                    self.ui_state.status_message = format!("Loaded STEP model {name}");
-                    self.ui_state.project_dirty = true;
-                    self.ui_state.request_fit = true;
-                }
-                Err(error) => {
-                    self.ui_state
-                        .console_log
-                        .push(format!("✖ Failed to import STEP {path_str}: {error}"));
-                    self.ui_state.status_message = "STEP import failed".into();
-                }
-            }
+            self.step_imports_pending += 1;
+            self.ui_state.status_message = format!("Importing STEP model {}…", path.display());
+            let sender = self.step_import_tx.clone();
+            let path = path.to_path_buf();
+            std::thread::spawn(move || {
+                let result = crate::importers::step::parse(&path.to_string_lossy())
+                    .map_err(|error| error.to_string());
+                let _ = sender.send((path, result));
+            });
             return;
         }
         match crate::importers::load_layer(&path_str, self.project.layers.len()) {
@@ -552,6 +545,44 @@ impl TekkCamApp {
         }
     }
 
+    fn poll_step_imports(&mut self) {
+        while let Ok((path, result)) = self.step_import_rx.try_recv() {
+            self.step_imports_pending = self.step_imports_pending.saturating_sub(1);
+            match result {
+                Ok(model) => {
+                    let name = model.name.clone();
+                    let face_count = model.triangles.len();
+                    let body_count = model.bodies.len();
+                    let schemas = model.source_schema.join(", ");
+                    let import_notes = model.import_notes.clone();
+                    self.project.models.push(model);
+                    self.ui_state.selected_model = Some(self.project.models.len() - 1);
+                    self.ui_state.show_3d_view = true;
+                    self.ui_state.console_log.push(format!(
+                        "✔ Imported STEP model {name} ({schemas}): {body_count} bodies, {face_count} tessellated faces"
+                    ));
+                    self.ui_state
+                        .console_log
+                        .extend(import_notes.into_iter().map(|note| format!("  ⚠ {note}")));
+                    self.ui_state.status_message = format!("Loaded STEP model {name}");
+                    self.ui_state.project_dirty = true;
+                    self.ui_state.request_fit = true;
+                }
+                Err(error) => {
+                    self.ui_state.console_log.push(format!(
+                        "✖ Failed to import STEP {}: {error}",
+                        path.display()
+                    ));
+                    self.ui_state.status_message = "STEP import failed".into();
+                }
+            }
+        }
+        if self.step_imports_pending > 0 {
+            self.ui_state.status_message =
+                format!("Importing {} STEP model(s)…", self.step_imports_pending);
+        }
+    }
+
     pub fn generate_operation(&mut self, index: usize) {
         let Some(operation) = self.project.operations.get(index) else {
             return;
@@ -576,12 +607,147 @@ impl TekkCamApp {
             self.ui_state.status_message = message;
             return;
         }
+        if matches!(
+            &operation.kind,
+            crate::cam::operations::OperationKind::ModelProfile2D
+        ) {
+            let model_index = self
+                .ui_state
+                .selected_model
+                .filter(|index| {
+                    self.project
+                        .models
+                        .get(*index)
+                        .is_some_and(|model| model.visible)
+                })
+                .or_else(|| self.project.models.iter().position(|model| model.visible));
+            let Some(model_index) = model_index else {
+                self.ui_state
+                    .console_log
+                    .push("✖ STEP face profile requires a visible model".into());
+                self.ui_state.status_message = "No visible STEP model".into();
+                return;
+            };
+            let geometry = match crate::cam::model_2d::selected_face_boundary(
+                &self.project.models[model_index],
+                &operation.source_face_ids,
+            ) {
+                Ok(geometry) => geometry,
+                Err(error) => {
+                    self.ui_state
+                        .console_log
+                        .push(format!("✖ STEP profile failed: {error}"));
+                    self.ui_state.status_message = "STEP profile failed".into();
+                    return;
+                }
+            };
+            let plugins = &self.plugin_registry;
+            let op = &mut self.project.operations[index];
+            match op.generate_from_geometry_with_plugins(&geometry, plugins) {
+                Ok(count) => {
+                    self.ui_state.project_dirty = true;
+                    self.ui_state.console_log.push(format!(
+                        "✔ Generated {count} STEP face profile moves for '{}'",
+                        op.name
+                    ));
+                    self.ui_state.status_message = format!("Generated {count} moves");
+                }
+                Err(error) => {
+                    self.ui_state
+                        .console_log
+                        .push(format!("✖ STEP profile failed: {error}"));
+                    self.ui_state.status_message = "STEP profile failed".into();
+                }
+            }
+            return;
+        }
+        let is_roughing = matches!(
+            &operation.kind,
+            crate::cam::operations::OperationKind::Roughing3D
+        );
+        let finish_strategy = match &operation.kind {
+            crate::cam::operations::OperationKind::FinishRaster3D => {
+                Some(crate::cam::finishing::FinishStrategy::Raster)
+            }
+            crate::cam::operations::OperationKind::FinishContour3D => {
+                Some(crate::cam::finishing::FinishStrategy::ContourParallel)
+            }
+            crate::cam::operations::OperationKind::FinishWaterline3D => {
+                Some(crate::cam::finishing::FinishStrategy::Waterline)
+            }
+            _ => None,
+        };
+        if is_roughing || finish_strategy.is_some() {
+            let model_index = self
+                .ui_state
+                .selected_model
+                .filter(|index| {
+                    self.project
+                        .models
+                        .get(*index)
+                        .is_some_and(|model| model.visible)
+                })
+                .or_else(|| self.project.models.iter().position(|model| model.visible));
+            let Some(model_index) = model_index else {
+                self.ui_state
+                    .console_log
+                    .push("✖ 3D machining requires a visible STEP model".into());
+                self.ui_state.status_message = "No visible STEP model".into();
+                return;
+            };
+            let result = if is_roughing {
+                crate::cam::roughing::generate(
+                    &self.project.models[model_index],
+                    &self.project.setup,
+                    &operation.tool,
+                    operation.margin_mm,
+                    None,
+                )
+            } else {
+                crate::cam::finishing::generate(
+                    &self.project.models[model_index],
+                    &self.project.setup,
+                    &operation.tool,
+                    finish_strategy.unwrap(),
+                    operation.tool.diameter_mm * self.project.setup.stepover_percent / 100.0,
+                    operation.margin_mm,
+                )
+            };
+            match result {
+                Ok(path) => {
+                    let count = path.moves.len();
+                    let op = &mut self.project.operations[index];
+                    op.toolpath = path;
+                    op.generated = count > 0;
+                    self.ui_state.project_dirty = true;
+                    self.ui_state.console_log.push(format!(
+                        "✔ Generated {count} 3D machining moves for '{}'",
+                        op.name
+                    ));
+                    self.ui_state.status_message = format!("Generated {count} moves");
+                }
+                Err(error) => {
+                    self.ui_state
+                        .console_log
+                        .push(format!("✖ 3D machining failed: {error}"));
+                    self.ui_state.status_message = "3D machining failed".into();
+                }
+            }
+            return;
+        }
+        let source_layer_id = operation.source_layer_id;
         let geometry = self
             .project
             .layers
             .iter()
-            .find(|l| l.visible && !l.geometry.is_empty())
-            .map(|l| l.geometry.clone());
+            .find(|layer| {
+                if let Some(id) = source_layer_id {
+                    layer.id == id && !layer.geometry.is_empty()
+                } else {
+                    layer.visible && !layer.geometry.is_empty()
+                }
+            })
+            .map(|layer| layer.geometry.clone());
         let Some(geometry) = geometry else {
             self.ui_state
                 .console_log
@@ -929,7 +1095,11 @@ impl TekkCamApp {
 impl eframe::App for TekkCamApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_dialog_result();
+        self.poll_step_imports();
         self.poll_machine_events();
+        if self.step_imports_pending > 0 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(80));
+        }
         if self.ui_state.machine_connected {
             ctx.request_repaint_after(std::time::Duration::from_millis(100));
         }
@@ -962,10 +1132,16 @@ impl eframe::App for TekkCamApp {
         crate::ui::machine::show(ctx, self);
 
         // ── Left sidebar ─────────────────────────────────────────────────────
-        sidebar::show(ctx, self);
+        if self.ui_state.show_left_sidebar {
+            sidebar::show(ctx, self);
+        }
 
         // ── Right properties panel ───────────────────────────────────────────
-        properties::show(ctx, self);
+        if self.ui_state.show_right_sidebar {
+            properties::show(ctx, self);
+        }
+
+        crate::ui::panel_tabs::show(ctx, self);
 
         // ── Central viewport ─────────────────────────────────────────────────
         viewport::show(ctx, self);

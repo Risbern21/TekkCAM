@@ -40,6 +40,8 @@ mod tests {
         project.tools.push(tool.clone());
         project.operations.push(Operation {
             tool: tool.clone(),
+            source_layer_id: Some(42),
+            source_face_ids: vec![1001, 1002],
             ..Operation::placeholder()
         });
         project.setup.stock_size_mm = [200.0, 150.0, 30.0];
@@ -54,5 +56,7 @@ mod tests {
         assert_eq!(decoded.tools[0].shape, ToolShape::BallNose);
         assert_eq!(decoded.tools[0].holder_clearance_mm, 5.0);
         assert_eq!(decoded.operations[0].tool.stickout_mm, 24.0);
+        assert_eq!(decoded.operations[0].source_layer_id, Some(42));
+        assert_eq!(decoded.operations[0].source_face_ids, vec![1001, 1002]);
     }
 }

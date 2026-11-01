@@ -9,14 +9,33 @@ permissions:
   contents: read
 
 jobs:
-  build-linux:
-    name: Build Linux x86_64 application
-    runs-on: ubuntu-latest
+  build:
+    name: Build ${{ matrix.platform }} application
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            binary: tekkcam
+            archive: tar.gz
+          - os: macos-15-intel
+            platform: macos-x86_64
+            binary: tekkcam
+          - os: macos-15
+            platform: macos-aarch64
+            binary: tekkcam
+          - os: windows-latest
+            platform: windows-x86_64
+            binary: tekkcam.exe
+            archive: zip
     steps:
       - name: Check out tagged source
         uses: actions/checkout@v6
 
       - name: Install native build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install --yes \
@@ -37,15 +56,53 @@ jobs:
       - name: Build application
         run: cargo build --locked --release
 
-      - name: Package application
+      - name: Package application (Linux and macOS)
+        if: runner.os != 'Windows'
+        id: package-unix
         run: |
-          archive="tekkcam-${GITHUB_REF_NAME}-linux-x86_64.tar.gz"
-          tar -czf "$archive" -C target/release tekkcam
-          echo "ARCHIVE=$archive" >> "$GITHUB_ENV"
+          archive="tekkcam-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz"
+          tar -czf "$archive" -C target/release "${{ matrix.binary }}"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+
+      - name: Package application (Windows)
+        if: runner.os == 'Windows'
+        id: package-windows
+        shell: pwsh
+        run: |
+          $archive = "tekkcam-${{ github.ref_name }}-${{ matrix.platform }}.zip"
+          Compress-Archive -Path "target/release/${{ matrix.binary }}" -DestinationPath $archive
+          "archive=$archive" >> $env:GITHUB_OUTPUT
 
       - name: Upload release build artifact
         uses: actions/upload-artifact@v7
         with:
-          name: tekkcam-${{ github.ref_name }}-linux-x86_64
-          path: ${{ env.ARCHIVE }}
+          name: tekkcam-${{ github.ref_name }}-${{ matrix.platform }}
+          path: ${{ steps.package-unix.outputs.archive || steps.package-windows.outputs.archive }}
           if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all platform builds
+        uses: actions/download-artifact@v8
+        with:
+          pattern: tekkcam-${{ github.ref_name }}-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create release and upload build assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* \
+              --verify-tag \
+              --generate-notes \
+              --repo "$GITHUB_REPOSITORY"
+          fi

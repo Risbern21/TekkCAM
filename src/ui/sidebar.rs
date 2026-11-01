@@ -172,6 +172,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         OperationKind::Pocket => "⬡",
                         OperationKind::Drill => "⊙",
                         OperationKind::Contour => "▭",
+                        OperationKind::ModelProfile2D => "⌑",
+                        OperationKind::Roughing3D => "▦",
+                        OperationKind::FinishRaster3D => "〰",
+                        OperationKind::FinishContour3D => "◎",
+                        OperationKind::FinishWaterline3D => "≋",
                         OperationKind::Placeholder => "📋",
                         OperationKind::Custom(_) => "⚙",
                     };

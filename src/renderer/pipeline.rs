@@ -28,6 +28,41 @@ pub struct Scene {
     pub toolpaths: Vec<Vertex>,
 }
 
+fn append_shaded_triangle(
+    scene: &mut Scene,
+    points: [[f32; 3]; 3],
+    base: [f32; 3],
+    orbit: [f32; 2],
+) {
+    let u = [
+        points[1][0] - points[0][0],
+        points[1][1] - points[0][1],
+        points[1][2] - points[0][2],
+    ];
+    let v = [
+        points[2][0] - points[0][0],
+        points[2][1] - points[0][1],
+        points[2][2] - points[0][2],
+    ];
+    let normal = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let magnitude = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+        .sqrt()
+        .max(1e-8);
+    let light = (normal[0] * 0.3 + normal[1] * 0.5 + normal[2] * 0.8) / magnitude;
+    let shade = 0.28 + 0.72 * light.max(0.0);
+    let color = [base[0] * shade, base[1] * shade, base[2] * shade, 1.0];
+    for point in points {
+        scene.triangles.push(Vertex {
+            pos: project_point(point[0], point[1], point[2], true, orbit),
+            color,
+        });
+    }
+}
+
 impl Scene {
     pub fn build(
         layers: &[Layer],
@@ -37,6 +72,7 @@ impl Scene {
         view_3d: bool,
         orbit: [f32; 2],
         selected_model: Option<usize>,
+        orbit_preview: bool,
     ) -> Self {
         let mut scene = Scene {
             revision,
@@ -60,69 +96,42 @@ impl Scene {
             .enumerate()
             .filter(|(_, model)| view_3d && model.visible)
         {
-            // Painter-sort triangles from far to near. This gives useful opaque
-            // shaded solids while the viewport still uses its shared 2D pass.
-            let model_faces: Vec<[u32; 3]> = if model.bodies.is_empty() {
-                model.triangles.clone()
+            // During orbit drags, sample a bounded number of triangles and skip
+            // the expensive painter sort. The complete sorted mesh is restored
+            // on the first frame after the drag ends.
+            let stride = if orbit_preview {
+                (model.triangles.len() + 11_999) / 12_000
             } else {
-                model
-                    .bodies
-                    .iter()
-                    .filter_map(|body| {
-                        model
-                            .triangles
-                            .get(body.first_triangle..body.first_triangle + body.triangle_count)
-                    })
-                    .flatten()
-                    .copied()
-                    .collect()
+                1
+            }
+            .max(1);
+            let base = if selected_model == Some(model_index) {
+                [0.95, 0.65, 0.28]
+            } else {
+                [0.55, 0.68, 0.82]
             };
-            let mut faces: Vec<_> = model_faces
-                .iter()
-                .map(|face| {
-                    let points = face.map(|index| model.vertices[index as usize]);
+            let mut faces = if orbit_preview {
+                Vec::new()
+            } else {
+                Vec::with_capacity(model.triangles.len())
+            };
+            for face in model.triangles.iter().step_by(stride) {
+                let points = face.map(|index| model.vertices[index as usize]);
+                if orbit_preview {
+                    append_shaded_triangle(&mut scene, points, base, orbit);
+                } else {
                     let depth = points
                         .iter()
                         .map(|p| camera_point(*p, orbit)[2])
                         .sum::<f32>()
                         / 3.0;
-                    (depth, points)
-                })
-                .collect();
-            faces.sort_by(|a, b| a.0.total_cmp(&b.0));
-            for (_, points) in faces {
-                let u = [
-                    points[1][0] - points[0][0],
-                    points[1][1] - points[0][1],
-                    points[1][2] - points[0][2],
-                ];
-                let v = [
-                    points[2][0] - points[0][0],
-                    points[2][1] - points[0][1],
-                    points[2][2] - points[0][2],
-                ];
-                let normal = [
-                    u[1] * v[2] - u[2] * v[1],
-                    u[2] * v[0] - u[0] * v[2],
-                    u[0] * v[1] - u[1] * v[0],
-                ];
-                let magnitude =
-                    (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
-                        .sqrt()
-                        .max(1e-8);
-                let light = (normal[0] * 0.3 + normal[1] * 0.5 + normal[2] * 0.8) / magnitude;
-                let shade = 0.28 + 0.72 * light.max(0.0);
-                let base = if selected_model == Some(model_index) {
-                    [0.95, 0.65, 0.28]
-                } else {
-                    [0.55, 0.68, 0.82]
-                };
-                let color = [base[0] * shade, base[1] * shade, base[2] * shade, 1.0];
-                for point in points {
-                    scene.triangles.push(Vertex {
-                        pos: project_point(point[0], point[1], point[2], view_3d, orbit),
-                        color,
-                    });
+                    faces.push((depth, points));
+                }
+            }
+            if !orbit_preview {
+                faces.sort_by(|a, b| a.0.total_cmp(&b.0));
+                for (_, points) in faces {
+                    append_shaded_triangle(&mut scene, points, base, orbit);
                 }
             }
         }
