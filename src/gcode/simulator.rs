@@ -42,7 +42,23 @@ impl Simulator {
                 } => (*at, *depth, *plunge_mm_min),
             };
             let start = self.position.unwrap_or(end);
-            let distance = (end[0] - start[0]).hypot(end[1] - start[1]) + (z - self.z).abs();
+            let planar_distance = if let ToolMove::Arc {
+                center_offset,
+                clockwise,
+                ..
+            } = movement
+            {
+                let center = [start[0] + center_offset[0], start[1] + center_offset[1]];
+                let start_angle = (start[1] - center[1]).atan2(start[0] - center[0]);
+                let end_angle = (end[1] - center[1]).atan2(end[0] - center[0]);
+                let sweep = arc_sweep(start, end, start_angle, end_angle, *clockwise);
+                let start_radius = (start[0] - center[0]).hypot(start[1] - center[1]);
+                let end_radius = (end[0] - center[0]).hypot(end[1] - center[1]);
+                sweep.abs() * (start_radius + end_radius) * 0.5
+            } else {
+                (end[0] - start[0]).hypot(end[1] - start[1])
+            };
+            let distance = planar_distance.hypot(z - self.z);
             let duration = (distance / rate.max(1.0) * 60.0).max(0.025);
             let remaining = duration * (1.0 - self.fraction);
             if time >= remaining {
@@ -74,21 +90,7 @@ fn interpolate_xy(movement: &ToolMove, start: [f64; 2], end: [f64; 2], t: f64) -
         let center = [start[0] + center_offset[0], start[1] + center_offset[1]];
         let start_angle = (start[1] - center[1]).atan2(start[0] - center[0]);
         let end_angle = (end[1] - center[1]).atan2(end[0] - center[0]);
-        let tau = std::f64::consts::TAU;
-        let mut sweep = end_angle - start_angle;
-        if *clockwise {
-            while sweep >= 0.0 {
-                sweep -= tau;
-            }
-        } else {
-            while sweep <= 0.0 {
-                sweep += tau;
-            }
-        }
-        // Equal start/end points denote a complete circle in G-code.
-        if (start[0] - end[0]).hypot(start[1] - end[1]) < 1e-9 {
-            sweep = if *clockwise { -tau } else { tau };
-        }
+        let sweep = arc_sweep(start, end, start_angle, end_angle, *clockwise);
         let radius = (start[0] - center[0]).hypot(start[1] - center[1]);
         let angle = start_angle + sweep * t;
         [
@@ -100,5 +102,56 @@ fn interpolate_xy(movement: &ToolMove, start: [f64; 2], end: [f64; 2], t: f64) -
             start[0] + (end[0] - start[0]) * t,
             start[1] + (end[1] - start[1]) * t,
         ]
+    }
+}
+
+fn arc_sweep(
+    start: [f64; 2],
+    end: [f64; 2],
+    start_angle: f64,
+    end_angle: f64,
+    clockwise: bool,
+) -> f64 {
+    let tau = std::f64::consts::TAU;
+    let mut sweep = end_angle - start_angle;
+    if clockwise {
+        while sweep >= 0.0 {
+            sweep -= tau;
+        }
+    } else {
+        while sweep <= 0.0 {
+            sweep += tau;
+        }
+    }
+    if (start[0] - end[0]).hypot(start[1] - end[1]) < 1e-9 {
+        if clockwise {
+            -tau
+        } else {
+            tau
+        }
+    } else {
+        sweep
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_circle_arc_takes_time_proportional_to_its_circumference() {
+        let movement = ToolMove::Arc {
+            to: [0.0, 0.0],
+            center_offset: [10.0, 0.0],
+            z: 0.0,
+            clockwise: false,
+            feed_mm_min: 60.0,
+        };
+        let mut simulator = Simulator::default();
+        simulator.reset();
+        simulator.advance(&[movement], 10.0);
+        assert!(simulator.running);
+        assert_eq!(simulator.move_index, 0);
+        assert!((simulator.fraction - 10.0 / (std::f64::consts::TAU * 10.0)).abs() < 1e-6);
     }
 }

@@ -721,13 +721,12 @@ impl TekkCamApp {
                 Ok(path) => {
                     let count = path.moves.len();
                     let remaining_stock = if is_roughing {
-                        crate::cam::roughing::estimate_remaining_stock(
+                        Some(crate::cam::roughing::estimate_remaining_stock(
                             &self.project.models[model_index],
                             &self.project.setup,
                             &operation.tool,
                             &path,
-                        )
-                        .ok()
+                        ))
                     } else {
                         None
                     };
@@ -743,13 +742,18 @@ impl TekkCamApp {
                         "⚠ 3D path gouge and holder checks are approximate and use the imported tessellation plus sampled cutter envelopes.".into(),
                     );
                     if let Some(estimate) = remaining_stock {
-                        self.ui_state.console_log.push(format!(
-                            "Approximate remaining stock: {:.2} mm³, max {:.3} mm over {} raster cells ({} uncovered).",
-                            estimate.volume_mm3,
-                            estimate.maximum_thickness_mm,
-                            estimate.sampled_cells,
-                            estimate.uncovered_cells,
-                        ));
+                        match estimate {
+                            Ok(estimate) => self.ui_state.console_log.push(format!(
+                                "Approximate remaining stock: {:.2} mm³, max {:.3} mm over {} raster cells ({} uncovered).",
+                                estimate.volume_mm3,
+                                estimate.maximum_thickness_mm,
+                                estimate.sampled_cells,
+                                estimate.uncovered_cells,
+                            )),
+                            Err(error) => self.ui_state.console_log.push(format!(
+                                "⚠ Remaining-stock estimate unavailable: {error}"
+                            )),
+                        }
                     }
                     self.ui_state.status_message = format!("Generated {count} moves");
                 }

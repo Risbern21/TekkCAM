@@ -5,6 +5,7 @@ use crate::cam::toolpath::ToolMove;
 pub fn parse(text: &str) -> Result<Vec<ToolMove>, String> {
     let mut moves = Vec::new();
     let (mut x, mut y, mut z) = (0.0, 0.0, 0.0);
+    let mut coordinate_offset = [0.0; 3];
     let (mut absolute, mut absolute_arc_center, mut plane, mut scale, mut feed) =
         (true, false, 17, 1.0, 100.0);
     let mut motion = 0;
@@ -16,8 +17,12 @@ pub fn parse(text: &str) -> Result<Vec<ToolMove>, String> {
         let mut axes = [None; 3];
         let mut ij = [None; 2];
         let mut radius = None;
+        let mut reset_coordinates = false;
+        let mut cancel_coordinate_offset = false;
         for (letter, value) in words {
             match letter {
+                'G' if (value - 92.0).abs() < 1e-6 => reset_coordinates = true,
+                'G' if (value - 92.1).abs() < 1e-6 => cancel_coordinate_offset = true,
                 'G' if (value - 90.1).abs() < 1e-6 => absolute_arc_center = true,
                 'G' if (value - 91.1).abs() < 1e-6 => absolute_arc_center = false,
                 'G' => match value.round() as i32 {
@@ -44,15 +49,31 @@ pub fn parse(text: &str) -> Result<Vec<ToolMove>, String> {
                 _ => {}
             }
         }
+        if cancel_coordinate_offset {
+            coordinate_offset = [0.0; 3];
+        }
+        if reset_coordinates {
+            for axis in 0..3 {
+                if let Some(programmed) = axes[axis] {
+                    let machine = [x, y, z][axis];
+                    coordinate_offset[axis] = machine - programmed;
+                }
+            }
+            continue;
+        }
         if axes.iter().all(Option::is_none) {
             continue;
         }
-        let next = |old: f64, value: Option<f64>| match value {
-            Some(v) if absolute => v,
+        let next = |old: f64, value: Option<f64>, offset: f64| match value {
+            Some(v) if absolute => v + offset,
             Some(v) => old + v,
             None => old,
         };
-        let (nx, ny, nz) = (next(x, axes[0]), next(y, axes[1]), next(z, axes[2]));
+        let (nx, ny, nz) = (
+            next(x, axes[0], coordinate_offset[0]),
+            next(y, axes[1], coordinate_offset[1]),
+            next(z, axes[2], coordinate_offset[2]),
+        );
         let movement = match motion {
             0 => ToolMove::Rapid {
                 to: [nx, ny],
@@ -80,7 +101,7 @@ pub fn parse(text: &str) -> Result<Vec<ToolMove>, String> {
                     ));
                 };
                 let center_offset = if absolute_arc_center {
-                    [i - x, j - y]
+                    [i + coordinate_offset[0] - x, j + coordinate_offset[1] - y]
                 } else {
                     [i, j]
                 };
@@ -153,4 +174,18 @@ fn lex_words(line: &str) -> Result<Vec<(char, f64)>, String> {
         words.push((letter, value));
     }
     Ok(words)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn g92_changes_coordinate_mapping_without_creating_motion() {
+        let moves = parse("G21 G90\nG1 X10 F100\nG92 X0\nG1 X5\nG92.1\nG1 X0\n").unwrap();
+        assert_eq!(moves.len(), 3);
+        assert_eq!(moves[0].end(), [10.0, 0.0]);
+        assert_eq!(moves[1].end(), [15.0, 0.0]);
+        assert_eq!(moves[2].end(), [0.0, 0.0]);
+    }
 }
