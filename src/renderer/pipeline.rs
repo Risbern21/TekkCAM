@@ -8,7 +8,11 @@ use crate::{
         operations::Operation,
         toolpath::{MoveKind, ToolMove},
     },
-    workspace::{layer::Layer, model::Model},
+    workspace::{
+        layer::Layer,
+        model::Model,
+        setup::{MachiningSetup, WorkAxis},
+    },
 };
 
 #[repr(C)]
@@ -73,6 +77,8 @@ impl Scene {
         orbit: [f32; 2],
         selected_model: Option<usize>,
         orbit_preview: bool,
+        setup: &MachiningSetup,
+        show_stock_removal: bool,
     ) -> Self {
         let mut scene = Scene {
             revision,
@@ -134,6 +140,60 @@ impl Scene {
                     append_shaded_triangle(&mut scene, points, base, orbit);
                 }
             }
+        }
+        // Show the configured stock envelope in 3D so model placement and
+        // generated toolpaths can be inspected against the actual setup.
+        if view_3d {
+            let min = setup.stock_origin_mm;
+            let max = [
+                min[0] + setup.stock_size_mm[0],
+                min[1] + setup.stock_size_mm[1],
+                match setup.axis {
+                    WorkAxis::ZUp => min[2] + setup.stock_size_mm[2],
+                    WorkAxis::ZDown => min[2] - setup.stock_size_mm[2],
+                },
+            ];
+            let z_min = min[2].min(max[2]) as f32;
+            let z_max = min[2].max(max[2]) as f32;
+            let x_min = min[0] as f32;
+            let x_max = max[0] as f32;
+            let y_min = min[1] as f32;
+            let y_max = max[1] as f32;
+            let corners = [
+                [x_min, y_min, z_min],
+                [x_max, y_min, z_min],
+                [x_max, y_max, z_min],
+                [x_min, y_max, z_min],
+                [x_min, y_min, z_max],
+                [x_max, y_min, z_max],
+                [x_max, y_max, z_max],
+                [x_min, y_max, z_max],
+            ];
+            for (a, b) in [
+                (0, 1),
+                (1, 2),
+                (2, 3),
+                (3, 0),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
+            ] {
+                let color = [0.45, 0.62, 0.78, 0.72];
+                for corner in [corners[a], corners[b]] {
+                    scene.lines.push(Vertex {
+                        pos: project_point(corner[0], corner[1], corner[2], true, orbit),
+                        color,
+                    });
+                }
+            }
+        }
+        if view_3d && show_stock_removal && !orbit_preview {
+            append_stock_removal_preview(&mut scene, operations, setup, orbit);
         }
         if view_3d {
             if let Some(model) = models.iter().find(|model| model.visible) {
@@ -206,6 +266,188 @@ impl Scene {
     }
 }
 
+/// Approximate stock removal with a 64 by 64 sampled height field. Each cutting
+/// move sweeps a circular cutter footprint over the grid; vertical walls and
+/// cutter engagement between grid samples are not modeled.
+fn append_stock_removal_preview(
+    scene: &mut Scene,
+    operations: &[Operation],
+    setup: &MachiningSetup,
+    orbit: [f32; 2],
+) {
+    const CELLS: usize = 64;
+    let nx = CELLS;
+    let ny = CELLS;
+    let origin = setup.stock_origin_mm;
+    let dx = setup.stock_size_mm[0] / nx as f64;
+    let dy = setup.stock_size_mm[1] / ny as f64;
+    let top = match setup.axis {
+        WorkAxis::ZUp => origin[2] + setup.stock_size_mm[2],
+        WorkAxis::ZDown => origin[2],
+    };
+    let floor = match setup.axis {
+        WorkAxis::ZUp => origin[2],
+        WorkAxis::ZDown => origin[2] - setup.stock_size_mm[2],
+    };
+    let mut heights = vec![top; (nx + 1) * (ny + 1)];
+
+    for operation in operations.iter().filter(|op| op.generated) {
+        let radius = operation.tool.diameter_mm * 0.5;
+        let mut current = [0.0, 0.0, top];
+        for movement in &operation.toolpath.moves {
+            match movement {
+                ToolMove::Rapid { to, z } => current = [to[0], to[1], *z],
+                ToolMove::Feed { to, z, .. } => {
+                    apply_cut_segment(
+                        &mut heights,
+                        nx,
+                        ny,
+                        origin,
+                        dx,
+                        dy,
+                        floor,
+                        [current[0], current[1], current[2]],
+                        [to[0], to[1], *z],
+                        radius,
+                    );
+                    current = [to[0], to[1], *z];
+                }
+                ToolMove::Arc {
+                    to,
+                    center_offset,
+                    z,
+                    clockwise,
+                    ..
+                } => {
+                    let center = [current[0] + center_offset[0], current[1] + center_offset[1]];
+                    let start_angle = (current[1] - center[1]).atan2(current[0] - center[0]);
+                    let end_angle = (to[1] - center[1]).atan2(to[0] - center[0]);
+                    let sweep = arc_sweep(start_angle, end_angle, *clockwise);
+                    let radius_arc = (current[0] - center[0]).hypot(current[1] - center[1]);
+                    let samples = ((sweep.abs() / 5_f64.to_radians()).ceil() as usize).max(1);
+                    let mut previous = current;
+                    for sample in 1..=samples {
+                        let t = sample as f64 / samples as f64;
+                        let angle = start_angle + sweep * t;
+                        let next = [
+                            center[0] + radius_arc * angle.cos(),
+                            center[1] + radius_arc * angle.sin(),
+                            current[2] + (z - current[2]) * t,
+                        ];
+                        apply_cut_segment(
+                            &mut heights,
+                            nx,
+                            ny,
+                            origin,
+                            dx,
+                            dy,
+                            floor,
+                            previous,
+                            next,
+                            radius,
+                        );
+                        previous = next;
+                    }
+                    current = [to[0], to[1], *z];
+                }
+                ToolMove::Drill { at, depth, .. } => {
+                    apply_cut_segment(
+                        &mut heights,
+                        nx,
+                        ny,
+                        origin,
+                        dx,
+                        dy,
+                        floor,
+                        [at[0], at[1], top],
+                        [at[0], at[1], *depth],
+                        radius,
+                    );
+                    current = [at[0], at[1], *depth];
+                }
+            }
+        }
+    }
+
+    let point = |ix: usize, iy: usize| {
+        [
+            (origin[0] + ix as f64 * dx) as f32,
+            (origin[1] + iy as f64 * dy) as f32,
+            heights[iy * (nx + 1) + ix] as f32,
+        ]
+    };
+    let base = [0.25, 0.72, 0.46];
+    for iy in 0..ny {
+        for ix in 0..nx {
+            let a = point(ix, iy);
+            let b = point(ix + 1, iy);
+            let c = point(ix + 1, iy + 1);
+            let d = point(ix, iy + 1);
+            append_shaded_triangle(scene, [a, b, c], base, orbit);
+            append_shaded_triangle(scene, [a, c, d], base, orbit);
+        }
+    }
+}
+
+fn apply_cut_segment(
+    heights: &mut [f64],
+    nx: usize,
+    ny: usize,
+    origin: [f64; 3],
+    dx: f64,
+    dy: f64,
+    floor: f64,
+    start: [f64; 3],
+    end: [f64; 3],
+    cutter_radius: f64,
+) {
+    let radius = cutter_radius + (dx * dx + dy * dy).sqrt() * 0.5;
+    let min_x = (((start[0].min(end[0]) - radius - origin[0]) / dx).floor() as isize)
+        .clamp(0, nx as isize) as usize;
+    let max_x = (((start[0].max(end[0]) + radius - origin[0]) / dx).ceil() as isize)
+        .clamp(0, nx as isize) as usize;
+    let min_y = (((start[1].min(end[1]) - radius - origin[1]) / dy).floor() as isize)
+        .clamp(0, ny as isize) as usize;
+    let max_y = (((start[1].max(end[1]) + radius - origin[1]) / dy).ceil() as isize)
+        .clamp(0, ny as isize) as usize;
+    let ab = [end[0] - start[0], end[1] - start[1]];
+    let length_sq = ab[0] * ab[0] + ab[1] * ab[1];
+    let radius_sq = radius * radius;
+    for iy in min_y..=max_y {
+        for ix in min_x..=max_x {
+            let x = origin[0] + ix as f64 * dx;
+            let y = origin[1] + iy as f64 * dy;
+            let t = if length_sq > f64::EPSILON {
+                (((x - start[0]) * ab[0] + (y - start[1]) * ab[1]) / length_sq).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let px = start[0] + ab[0] * t;
+            let py = start[1] + ab[1] * t;
+            let dist_sq = (x - px) * (x - px) + (y - py) * (y - py);
+            if dist_sq <= radius_sq {
+                let cut_z = (start[2] + (end[2] - start[2]) * t).max(floor);
+                let height = &mut heights[iy * (nx + 1) + ix];
+                *height = height.min(cut_z);
+            }
+        }
+    }
+}
+
+fn arc_sweep(start: f64, end: f64, clockwise: bool) -> f64 {
+    let mut sweep = end - start;
+    if clockwise {
+        while sweep >= 0.0 {
+            sweep -= std::f64::consts::TAU;
+        }
+    } else {
+        while sweep <= 0.0 {
+            sweep += std::f64::consts::TAU;
+        }
+    }
+    sweep
+}
+
 pub fn projected_model_bounds(model: &Model, orbit: [f32; 2]) -> ([f32; 2], [f32; 2]) {
     let mut min = [f32::INFINITY; 2];
     let mut max = [f32::NEG_INFINITY; 2];
@@ -230,6 +472,12 @@ fn project_point(x: f32, y: f32, z: f32, view_3d: bool, orbit: [f32; 2]) -> [f32
     } else {
         [x, y]
     }
+}
+
+/// Project a 3D world position into the same orthographic coordinates used by
+/// the viewport scene, for egui overlays such as the simulated cutter marker.
+pub fn project_view_point(point: [f32; 3], orbit: [f32; 2]) -> [f32; 2] {
+    project_point(point[0], point[1], point[2], true, orbit)
 }
 
 fn camera_point(point: [f32; 3], orbit: [f32; 2]) -> [f32; 3] {

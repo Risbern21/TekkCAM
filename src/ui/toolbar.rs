@@ -97,6 +97,13 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         app.ui_state.request_fit = true;
                         ui.close_menu();
                     }
+                    ui.separator();
+                    ui.add_enabled_ui(app.ui_state.show_3d_view, |ui| {
+                        ui.checkbox(
+                            &mut app.ui_state.show_stock_removal,
+                            "Stock removal preview (sampled)",
+                        );
+                    });
                 });
 
                 ui.menu_button("CAM", |ui| {

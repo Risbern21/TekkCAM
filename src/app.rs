@@ -193,6 +193,7 @@ pub struct UiState {
     pub machine_connected: bool,
     pub show_grid: bool,
     pub show_3d_view: bool,
+    pub show_stock_removal: bool,
     pub show_left_sidebar: bool,
     pub show_right_sidebar: bool,
     pub model_orbit: [f32; 2],
@@ -204,7 +205,6 @@ pub struct UiState {
     /// Last known viewport rect size (points)
     pub viewport_size: egui::Vec2,
     pub gcode_text: String,
-    pub gcode_dialect: crate::gcode::generator::Dialect,
     pub simulator: crate::gcode::simulator::Simulator,
     pub show_gcode_editor: bool,
     pub simulation_moves: Vec<crate::cam::toolpath::ToolMove>,
@@ -262,6 +262,7 @@ impl Default for UiState {
             machine_connected: false,
             show_grid: true,
             show_3d_view: false,
+            show_stock_removal: false,
             show_left_sidebar: true,
             show_right_sidebar: true,
             model_orbit: [0.0, 0.0],
@@ -271,7 +272,6 @@ impl Default for UiState {
             request_fit: false,
             viewport_size: egui::vec2(800.0, 600.0),
             gcode_text: String::new(),
-            gcode_dialect: crate::gcode::generator::Dialect::Grbl,
             simulator: crate::gcode::simulator::Simulator::default(),
             show_gcode_editor: false,
             simulation_moves: Vec::new(),
@@ -588,6 +588,7 @@ impl TekkCamApp {
     }
 
     pub fn generate_operation(&mut self, index: usize) {
+        self.scene_sig.clear();
         let Some(operation) = self.project.operations.get(index) else {
             return;
         };
@@ -803,9 +804,10 @@ impl TekkCamApp {
     }
 
     pub fn generate_gcode(&mut self) {
-        match crate::gcode::generator::generate(
+        match crate::gcode::generator::generate_with_setup(
             &self.project.operations,
-            self.ui_state.gcode_dialect,
+            self.project.post_dialect,
+            &self.project.setup,
         ) {
             Ok(text) => {
                 self.ui_state.gcode_text = text;

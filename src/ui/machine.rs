@@ -205,6 +205,17 @@ fn controls_window(ctx: &egui::Context, app: &mut TekkCamApp) {
                 }
                 if ui
                     .add_enabled(
+                        app.ui_state.machine_connected,
+                        egui::Button::new("▶ Resume / Cycle start (~)"),
+                    )
+                    .clicked()
+                {
+                    if let Some(machine) = &app.machine {
+                        machine.realtime(vec![b'~']);
+                    }
+                }
+                if ui
+                    .add_enabled(
                         app.ui_state.job_progress.is_some(),
                         egui::Button::new("⏸ Feed hold / Stop"),
                     )

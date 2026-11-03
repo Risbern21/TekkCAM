@@ -29,16 +29,66 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
             // Overlay coordinate display (top-left of viewport)
             overlay_info(ui, app, rect);
+            operation_status_overlay(ui, app, rect);
             if let Some(position) = crate::ui::console::simulation_position(app) {
-                let screen = egui::pos2(
-                    rect.center().x + (position[0] as f32 - app.camera.pan.x) * app.camera.zoom,
-                    rect.center().y - (position[1] as f32 - app.camera.pan.y) * app.camera.zoom,
-                );
+                let world_xy = [
+                    position[0] + app.project.setup.work_origin_mm[0],
+                    position[1] + app.project.setup.work_origin_mm[1],
+                ];
+                let world_z = app.ui_state.simulator.z + app.project.setup.work_origin_mm[2];
+                let screen = if app.ui_state.show_3d_view {
+                    let projected = crate::renderer::pipeline::project_view_point(
+                        [world_xy[0] as f32, world_xy[1] as f32, world_z as f32],
+                        app.ui_state.model_orbit,
+                    );
+                    egui::pos2(
+                        rect.center().x + (projected[0] - app.camera.pan.x) * app.camera.zoom,
+                        rect.center().y - (projected[1] - app.camera.pan.y) * app.camera.zoom,
+                    )
+                } else {
+                    egui::pos2(
+                        rect.center().x + (world_xy[0] as f32 - app.camera.pan.x) * app.camera.zoom,
+                        rect.center().y - (world_xy[1] as f32 - app.camera.pan.y) * app.camera.zoom,
+                    )
+                };
                 let painter = ui.painter_at(rect);
-                painter.circle_filled(screen, 5.0, egui::Color32::from_rgb(255, 75, 55));
+                let tool_diameter = app
+                    .ui_state
+                    .selected_operation
+                    .and_then(|index| app.project.operations.get(index))
+                    .map(|operation| operation.tool.diameter_mm as f32)
+                    .unwrap_or(app.project.default_tool.diameter_mm as f32);
+                let radius = if app.ui_state.show_3d_view {
+                    (tool_diameter * app.camera.zoom * 0.5).clamp(4.0, 16.0)
+                } else {
+                    5.0
+                };
+                if app.ui_state.show_3d_view {
+                    let tool = app
+                        .ui_state
+                        .selected_operation
+                        .and_then(|index| app.project.operations.get(index))
+                        .map(|operation| &operation.tool)
+                        .unwrap_or(&app.project.default_tool);
+                    let tip = [world_xy[0] as f32, world_xy[1] as f32, world_z as f32];
+                    let shaft_end = [tip[0], tip[1], tip[2] + tool.stickout_mm as f32];
+                    let projected = crate::renderer::pipeline::project_view_point(
+                        shaft_end,
+                        app.ui_state.model_orbit,
+                    );
+                    let shaft_screen = egui::pos2(
+                        rect.center().x + (projected[0] - app.camera.pan.x) * app.camera.zoom,
+                        rect.center().y - (projected[1] - app.camera.pan.y) * app.camera.zoom,
+                    );
+                    painter.line_segment(
+                        [screen, shaft_screen],
+                        egui::Stroke::new(3.0_f32, egui::Color32::from_rgb(190, 195, 205)),
+                    );
+                }
+                painter.circle_filled(screen, radius, egui::Color32::from_rgb(255, 75, 55));
                 painter.circle_stroke(
                     screen,
-                    8.0,
+                    radius + 3.0,
                     egui::Stroke::new(1.5_f32, egui::Color32::WHITE),
                 );
             }
@@ -55,6 +105,29 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             );
             ui.painter().add(callback);
         });
+}
+
+fn operation_status_overlay(ui: &egui::Ui, app: &TekkCamApp, rect: egui::Rect) {
+    let Some(operation) = app
+        .ui_state
+        .selected_operation
+        .and_then(|index| app.project.operations.get(index))
+    else {
+        return;
+    };
+    let state = if operation.generated {
+        "toolpath ready"
+    } else {
+        "not generated"
+    };
+    let text = format!("Operation: {} · {}", operation.name, state);
+    ui.painter_at(rect).text(
+        egui::pos2(rect.right() - 8.0, rect.top() + 8.0),
+        egui::Align2::RIGHT_TOP,
+        text,
+        egui::FontId::monospace(11.0),
+        egui::Color32::from_rgb(180, 195, 215),
+    );
 }
 
 /// Rebuild `app.scene` when the set of visible layers changes.
@@ -87,6 +160,18 @@ fn sync_scene(app: &mut TekkCamApp, orbit_preview: bool) {
         .collect();
     let mut sig = sig;
     sig.push((u64::MAX, app.ui_state.show_3d_view, 0));
+    sig.push((u64::MAX - 21, app.ui_state.show_stock_removal, 0));
+    for (index, value) in app
+        .project
+        .setup
+        .stock_origin_mm
+        .iter()
+        .chain(app.project.setup.stock_size_mm.iter())
+        .enumerate()
+    {
+        sig.push((u64::MAX - 10 - index as u64, true, value.to_bits()));
+    }
+    sig.push((u64::MAX - 20, true, app.project.setup.axis as u64));
     sig.push((u64::MAX - 4, orbit_preview, 0));
     sig.push((
         u64::MAX - 1,
@@ -116,6 +201,8 @@ fn sync_scene(app: &mut TekkCamApp, orbit_preview: bool) {
             app.ui_state.model_orbit,
             app.ui_state.selected_model,
             orbit_preview,
+            &app.project.setup,
+            app.ui_state.show_stock_removal,
         ));
         app.scene_sig = sig;
     }

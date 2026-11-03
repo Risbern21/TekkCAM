@@ -7,6 +7,82 @@ pub enum WorkAxis {
     ZDown,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum WorkOffset {
+    #[default]
+    G54,
+    G55,
+    G56,
+    G57,
+    G58,
+    G59,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MachineLimits {
+    pub min_mm: [f64; 3],
+    pub max_mm: [f64; 3],
+}
+
+impl Default for MachineLimits {
+    fn default() -> Self {
+        Self {
+            min_mm: [-500.0; 3],
+            max_mm: [500.0; 3],
+        }
+    }
+}
+
+impl MachineLimits {
+    pub fn validate(&self) -> Result<(), String> {
+        for axis in 0..3 {
+            if !self.min_mm[axis].is_finite()
+                || !self.max_mm[axis].is_finite()
+                || self.min_mm[axis] >= self.max_mm[axis]
+            {
+                return Err(format!(
+                    "machine {} limits must be finite and min must be below max",
+                    ["X", "Y", "Z"][axis]
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn check_point(&self, point: [f64; 3]) -> Result<(), String> {
+        self.validate()?;
+        for axis in 0..3 {
+            if !point[axis].is_finite()
+                || point[axis] < self.min_mm[axis]
+                || point[axis] > self.max_mm[axis]
+            {
+                return Err(format!(
+                    "toolpath exceeds machine {} limits [{:.3}, {:.3}] mm at {:.3} mm",
+                    ["X", "Y", "Z"][axis],
+                    self.min_mm[axis],
+                    self.max_mm[axis],
+                    point[axis]
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl WorkOffset {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::G54 => "G54",
+            Self::G55 => "G55",
+            Self::G56 => "G56",
+            Self::G57 => "G57",
+            Self::G58 => "G58",
+            Self::G59 => "G59",
+        }
+    }
+}
+
 /// Project machining setup, with all lengths stored in millimeters.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -15,6 +91,10 @@ pub struct MachiningSetup {
     pub stock_origin_mm: [f64; 3],
     pub work_origin_mm: [f64; 3],
     pub axis: WorkAxis,
+    #[serde(default)]
+    pub work_offset: WorkOffset,
+    #[serde(default)]
+    pub machine_limits: Option<MachineLimits>,
     pub safe_z_mm: f64,
     pub clearance_mm: f64,
     pub boundary_margin_mm: f64,
@@ -43,6 +123,8 @@ impl Default for MachiningSetup {
             stock_origin_mm: [0.0; 3],
             work_origin_mm: [0.0; 3],
             axis: WorkAxis::ZUp,
+            work_offset: WorkOffset::default(),
+            machine_limits: None,
             safe_z_mm: 5.0,
             clearance_mm: 2.0,
             boundary_margin_mm: 1.0,
@@ -103,6 +185,9 @@ impl MachiningSetup {
         }
         if !self.path_tolerance_mm.is_finite() || !(0.001..=1.0).contains(&self.path_tolerance_mm) {
             return Err("path tolerance must be between 0.001 and 1 mm".into());
+        }
+        if let Some(limits) = &self.machine_limits {
+            limits.validate()?;
         }
         Ok(())
     }

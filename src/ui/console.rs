@@ -41,14 +41,20 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 );
                 ui.separator();
                 egui::ComboBox::from_id_salt("gcode_dialect")
-                    .selected_text(app.ui_state.gcode_dialect.label())
+                    .selected_text(app.project.post_dialect.label())
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut app.ui_state.gcode_dialect, Dialect::Grbl, "GRBL");
-                        ui.selectable_value(
-                            &mut app.ui_state.gcode_dialect,
-                            Dialect::LinuxCnc,
-                            "LinuxCNC",
-                        );
+                        let changed = ui
+                            .selectable_value(&mut app.project.post_dialect, Dialect::Grbl, "GRBL")
+                            .changed()
+                            | ui.selectable_value(
+                                &mut app.project.post_dialect,
+                                Dialect::LinuxCnc,
+                                "LinuxCNC",
+                            )
+                            .changed();
+                        if changed {
+                            app.ui_state.project_dirty = true;
+                        }
                     });
                 if ui.button("Generate G-code").clicked() {
                     app.generate_gcode();
