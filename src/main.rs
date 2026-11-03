@@ -1,15 +1,6 @@
 // Scaffold phase: allow dead_code and unused for placeholder modules
 #![allow(dead_code, unused_variables, unused_imports)]
 
-mod app;
-mod cam;
-mod gcode;
-mod importers;
-mod machine;
-mod renderer;
-mod ui;
-mod workspace;
-
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
         // Show our own crate at INFO, suppress noisy wgpu/zbus internals
@@ -33,7 +24,7 @@ fn main() -> anyhow::Result<()> {
     eframe::run_native(
         "tekkCAM",
         native_options,
-        Box::new(|cc| Ok(Box::new(app::TekkCamApp::new(cc)))),
+        Box::new(|cc| Ok(Box::new(tekkcam::app::TekkCamApp::new(cc)))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))
 }

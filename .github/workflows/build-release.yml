@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }} application
+    name: Build ${{ matrix.platform }} CLI and GUI
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -18,17 +18,21 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux-x86_64
-            binary: tekkcam
+            cli_binary: tekkcam
+            gui_binary: tekkcam-gui
             archive: tar.gz
           - os: macos-15-intel
             platform: macos-x86_64
-            binary: tekkcam
+            cli_binary: tekkcam
+            gui_binary: tekkcam-gui
           - os: macos-15
             platform: macos-aarch64
-            binary: tekkcam
+            cli_binary: tekkcam
+            gui_binary: tekkcam-gui
           - os: windows-latest
             platform: windows-x86_64
-            binary: tekkcam.exe
+            cli_binary: tekkcam.exe
+            gui_binary: tekkcam-gui.exe
             archive: zip
     steps:
       - name: Check out tagged source
@@ -54,14 +58,14 @@ jobs:
           rustup default stable
 
       - name: Build application
-        run: cargo build --locked --release
+        run: cargo build --locked --release --bins
 
       - name: Package application (Linux and macOS)
         if: runner.os != 'Windows'
         id: package-unix
         run: |
           archive="tekkcam-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz"
-          tar -czf "$archive" -C target/release "${{ matrix.binary }}"
+          tar -czf "$archive" -C target/release "${{ matrix.cli_binary }}" "${{ matrix.gui_binary }}"
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - name: Package application (Windows)
@@ -70,7 +74,7 @@ jobs:
         shell: pwsh
         run: |
           $archive = "tekkcam-${{ github.ref_name }}-${{ matrix.platform }}.zip"
-          Compress-Archive -Path "target/release/${{ matrix.binary }}" -DestinationPath $archive
+          Compress-Archive -Path "target/release/${{ matrix.cli_binary }}", "target/release/${{ matrix.gui_binary }}" -DestinationPath $archive
           "archive=$archive" >> $env:GITHUB_OUTPUT
 
       - name: Upload release build artifact

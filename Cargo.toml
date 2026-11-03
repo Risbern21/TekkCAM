@@ -1,13 +1,21 @@
 [package]
 name = "tekkcam"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Desktop CNC CAM application"
 authors = ["tekkCAM"]
 
 [[bin]]
-name = "tekkcam"
+name = "tekkcam-gui"
 path = "src/main.rs"
+
+[[bin]]
+name = "tekkcam"
+path = "src/bin/tekkcam.rs"
+
+[lib]
+name = "tekkcam"
+path = "src/lib.rs"
 
 [dependencies]
 # UI

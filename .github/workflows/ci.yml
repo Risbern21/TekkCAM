@@ -47,5 +47,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Check both binaries
+        run: cargo check --locked --bins
+
       - name: Run tests
         run: cargo test --locked

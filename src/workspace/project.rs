@@ -19,6 +19,8 @@ pub struct Project {
     pub setup: super::setup::MachiningSetup,
     #[serde(default)]
     pub post_dialect: crate::gcode::generator::Dialect,
+    #[serde(default)]
+    pub import_warnings: Vec<String>,
 }
 
 #[cfg(test)]

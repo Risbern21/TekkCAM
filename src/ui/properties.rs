@@ -416,9 +416,53 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         && app.ui_state.selected_operation.is_none()
                     {
                         let units = app.ui_state.display_units;
-                        let setup = &mut app.project.setup;
                         section_header(ui, "STOCK & WORK SETUP");
                         ui.add_space(6.0);
+                        if let Some(bounds) = model_bounds {
+                            ui.label("STEP model bounds (mm)");
+                            for axis in 0..3 {
+                                ui.label(format!(
+                                    "{}: {:.2} to {:.2}  (size {:.2})",
+                                    ["X", "Y", "Z"][axis],
+                                    bounds[0][axis],
+                                    bounds[1][axis],
+                                    bounds[1][axis] - bounds[0][axis]
+                                ));
+                            }
+                            if ui.button("Fit stock to model").clicked() {
+                                let setup = &mut app.project.setup;
+                                let holder_radius = app
+                                    .project
+                                    .operations
+                                    .iter()
+                                    .map(|operation| {
+                                        operation.tool.diameter_mm * 0.5
+                                            + operation.tool.holder_clearance_mm
+                                    })
+                                    .fold(
+                                        app.project.default_tool.diameter_mm * 0.5
+                                            + app.project.default_tool.holder_clearance_mm,
+                                        f64::max,
+                                    );
+                                let xy_margin = holder_radius.max(1.0);
+                                for axis in 0..2 {
+                                    setup.stock_origin_mm[axis] =
+                                        bounds[0][axis] as f64 - xy_margin;
+                                    setup.stock_size_mm[axis] = (bounds[1][axis] - bounds[0][axis])
+                                        as f64
+                                        + xy_margin * 2.0;
+                                }
+                                setup.axis = crate::workspace::setup::WorkAxis::ZUp;
+                                setup.stock_origin_mm[2] = bounds[0][2] as f64;
+                                setup.stock_size_mm[2] = (bounds[1][2] - bounds[0][2]) as f64 + 5.0;
+                                project_changed = true;
+                            }
+                            ui.label(
+                                "Adjusts stock bounds only; model coordinates stay unchanged.",
+                            );
+                            ui.add_space(6.0);
+                        }
+                        let setup = &mut app.project.setup;
                         ui.label("Stock size");
                         for (axis, value) in ["X", "Y", "Z"]
                             .into_iter()

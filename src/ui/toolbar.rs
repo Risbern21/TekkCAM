@@ -4,6 +4,12 @@ use eframe::egui;
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
 const SUCCESS: egui::Color32 = egui::Color32::from_rgb(60, 200, 100);
 const DANGER: egui::Color32 = egui::Color32::from_rgb(220, 70, 70);
+const ICON_LAYOUT_SIDEBAR_LEFT: char = '\u{EBF3}';
+const ICON_LAYOUT_SIDEBAR_LEFT_OFF: char = '\u{EC02}';
+const ICON_LAYOUT_SIDEBAR_RIGHT: char = '\u{EBF4}';
+const ICON_LAYOUT_SIDEBAR_RIGHT_OFF: char = '\u{EC00}';
+const ICON_LAYOUT_PANEL: char = '\u{EBF2}';
+const ICON_LAYOUT_PANEL_OFF: char = '\u{EC01}';
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
@@ -226,6 +232,77 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                             app.refresh_machine_ports();
                             app.ui_state.show_machine_dialog = true;
                         }
+                    }
+
+                    ui.add_space(8.0);
+
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(
+                                    if app.ui_state.show_right_sidebar {
+                                        ICON_LAYOUT_SIDEBAR_RIGHT
+                                    } else {
+                                        ICON_LAYOUT_SIDEBAR_RIGHT_OFF
+                                    }
+                                    .to_string(),
+                                )
+                                .size(18.0)
+                                .color(ui.visuals().text_color()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        )
+                        .on_hover_text("Toggle properties and setup panel")
+                        .clicked()
+                    {
+                        app.ui_state.show_right_sidebar = !app.ui_state.show_right_sidebar;
+                    }
+
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(
+                                    if app.ui_state.show_console {
+                                        ICON_LAYOUT_PANEL
+                                    } else {
+                                        ICON_LAYOUT_PANEL_OFF
+                                    }
+                                    .to_string(),
+                                )
+                                .size(18.0)
+                                .color(ui.visuals().text_color()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        )
+                        .on_hover_text("Toggle editor and console panel")
+                        .clicked()
+                    {
+                        app.ui_state.show_console = !app.ui_state.show_console;
+                    }
+
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(
+                                    if app.ui_state.show_left_sidebar {
+                                        ICON_LAYOUT_SIDEBAR_LEFT
+                                    } else {
+                                        ICON_LAYOUT_SIDEBAR_LEFT_OFF
+                                    }
+                                    .to_string(),
+                                )
+                                .size(18.0)
+                                .color(ui.visuals().text_color()),
+                            )
+                            .fill(egui::Color32::TRANSPARENT)
+                            .stroke(egui::Stroke::NONE),
+                        )
+                        .on_hover_text("Toggle layers and operations panel")
+                        .clicked()
+                    {
+                        app.ui_state.show_left_sidebar = !app.ui_state.show_left_sidebar;
                     }
 
                     ui.add_space(8.0);

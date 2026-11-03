@@ -196,6 +196,7 @@ pub struct UiState {
     pub show_stock_removal: bool,
     pub show_left_sidebar: bool,
     pub show_right_sidebar: bool,
+    pub show_console: bool,
     pub model_orbit: [f32; 2],
     pub display_units: DisplayUnits,
     pub theme: AppTheme,
@@ -255,7 +256,7 @@ impl Default for UiState {
             show_settings: false,
             console_input: String::new(),
             console_log: vec![
-                "tekkCAM v0.1.0 — ready.".into(),
+                "tekkCAM v0.1.1 — ready.".into(),
                 "Load a Gerber / DXF / SVG file to begin.".into(),
             ],
             status_message: "Ready".into(),
@@ -265,6 +266,7 @@ impl Default for UiState {
             show_stock_removal: false,
             show_left_sidebar: true,
             show_right_sidebar: true,
+            show_console: true,
             model_orbit: [0.0, 0.0],
             display_units: DisplayUnits::default(),
             theme: AppTheme::Dark,
@@ -295,6 +297,20 @@ impl Default for UiState {
 
 impl TekkCamApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let mut fonts = egui::FontDefinitions::default();
+        fonts.font_data.insert(
+            "sidebar_icons".into(),
+            Arc::new(egui::FontData::from_static(include_bytes!(
+                "../assets/sidebar-icons.ttf"
+            ))),
+        );
+        fonts
+            .families
+            .entry(egui::FontFamily::Proportional)
+            .or_default()
+            .push("sidebar_icons".into());
+        cc.egui_ctx.set_fonts(fonts);
+
         let preferences = AppPreferences::load();
         apply_theme(&cc.egui_ctx, preferences.theme);
 
@@ -1160,7 +1176,9 @@ impl eframe::App for TekkCamApp {
         toolbar::show(ctx, self);
 
         // ── Bottom console panel ─────────────────────────────────────────────
-        console::show(ctx, self);
+        if self.ui_state.show_console {
+            console::show(ctx, self);
+        }
 
         crate::ui::machine::show(ctx, self);
 
@@ -1173,8 +1191,6 @@ impl eframe::App for TekkCamApp {
         if self.ui_state.show_right_sidebar {
             properties::show(ctx, self);
         }
-
-        crate::ui::panel_tabs::show(ctx, self);
 
         // ── Central viewport ─────────────────────────────────────────────────
         viewport::show(ctx, self);
