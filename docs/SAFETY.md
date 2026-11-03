@@ -1,0 +1,9 @@
+# Phase 9 path safety and tolerance limits
+
+tekkCAM generates paths from the imported STEP triangle mesh. STEP imports use the setup's absolute chordal tolerance (0.05 mm by default); changing it affects subsequently imported models. Path simplification uses a 3D Ramer–Douglas–Peucker bound (0.02 mm by default), preserves rapid boundaries, and runs before the path checks.
+
+Roughing uses raster samples for cutter accessibility, then samples feed segments at a spacing bounded by the path tolerance and one quarter of the cutter radius. Cutter access uses the mesh query's center plus eight radial samples. Holder checks use a sampled cylindrical envelope based on flute length and holder clearance. Finishing checks rapid clearance and holder clearance similarly. Flat raster and contour-parallel finishing also run a sampled centerline gouge check. Waterline paths are not checked with that vertical height query because vertical walls make it report false collisions; ball-nose gouge checking is also unsupported. Roughing reports a sampled residual-stock volume and maximum thickness estimate; it is based on an XY raster and sampled cutter-center path, not a stock-removal simulation.
+
+These checks can miss collisions between samples, depend on STEP tessellation quality, and do not prove continuous swept-volume clearance. They do not model machine travel limits, clamps, fixtures, spindle/collet geometry beyond the configured cylindrical holder envelope, or material already removed by earlier operations. Generated 3D paths show an approximate-check warning in the console.
+
+Roughing and finishing make disconnected cuts with retracts to the configured clearance height. When the run is long enough, entry and exit ramps use the configured ramp angle; short runs retain a direct plunge/retract. Stepdown and stepover remain bounded by the project setup.

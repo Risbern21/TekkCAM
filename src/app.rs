@@ -510,9 +510,13 @@ impl TekkCamApp {
             self.ui_state.status_message = format!("Importing STEP model {}…", path.display());
             let sender = self.step_import_tx.clone();
             let path = path.to_path_buf();
+            let chordal_tolerance_mm = self.project.setup.chordal_tolerance_mm;
             std::thread::spawn(move || {
-                let result = crate::importers::step::parse(&path.to_string_lossy())
-                    .map_err(|error| error.to_string());
+                let result = crate::importers::step::parse_with_chordal_tolerance(
+                    &path.to_string_lossy(),
+                    chordal_tolerance_mm,
+                )
+                .map_err(|error| error.to_string());
                 let _ = sender.send((path, result));
             });
             return;
@@ -716,6 +720,17 @@ impl TekkCamApp {
             match result {
                 Ok(path) => {
                     let count = path.moves.len();
+                    let remaining_stock = if is_roughing {
+                        crate::cam::roughing::estimate_remaining_stock(
+                            &self.project.models[model_index],
+                            &self.project.setup,
+                            &operation.tool,
+                            &path,
+                        )
+                        .ok()
+                    } else {
+                        None
+                    };
                     let op = &mut self.project.operations[index];
                     op.toolpath = path;
                     op.generated = count > 0;
@@ -724,6 +739,18 @@ impl TekkCamApp {
                         "✔ Generated {count} 3D machining moves for '{}'",
                         op.name
                     ));
+                    self.ui_state.console_log.push(
+                        "⚠ 3D path gouge and holder checks are approximate and use the imported tessellation plus sampled cutter envelopes.".into(),
+                    );
+                    if let Some(estimate) = remaining_stock {
+                        self.ui_state.console_log.push(format!(
+                            "Approximate remaining stock: {:.2} mm³, max {:.3} mm over {} raster cells ({} uncovered).",
+                            estimate.volume_mm3,
+                            estimate.maximum_thickness_mm,
+                            estimate.sampled_cells,
+                            estimate.uncovered_cells,
+                        ));
+                    }
                     self.ui_state.status_message = format!("Generated {count} moves");
                 }
                 Err(error) => {

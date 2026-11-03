@@ -81,10 +81,16 @@ pub fn generate(
                     if let Some(sample) = query.height_at_xy(x, y) {
                         samples.push(compensate([x, y], sample, tool, allowance_mm));
                     } else {
-                        append_surface_run(&mut path, &mut samples, safe_z, tool);
+                        append_surface_run(
+                            &mut path,
+                            &mut samples,
+                            safe_z,
+                            tool,
+                            setup.ramp_angle_deg,
+                        );
                     }
                 }
-                append_surface_run(&mut path, &mut samples, safe_z, tool);
+                append_surface_run(&mut path, &mut samples, safe_z, tool, setup.ramp_angle_deg);
             }
         }
         FinishStrategy::ContourParallel => {
@@ -112,10 +118,16 @@ pub fn generate(
                     if let Some(sample) = query.height_at_xy(point[0], point[1]) {
                         valid.push(compensate(point, sample, tool, allowance_mm));
                     } else {
-                        append_surface_run(&mut path, &mut valid, safe_z, tool);
+                        append_surface_run(
+                            &mut path,
+                            &mut valid,
+                            safe_z,
+                            tool,
+                            setup.ramp_angle_deg,
+                        );
                     }
                 }
-                append_surface_run(&mut path, &mut valid, safe_z, tool);
+                append_surface_run(&mut path, &mut valid, safe_z, tool, setup.ramp_angle_deg);
                 inset += stepover_mm;
                 loops += 1;
                 if loops > 100_000 {
@@ -134,13 +146,17 @@ pub fn generate(
                     if contour.len() < 2 {
                         continue;
                     }
-                    let start = contour[0];
-                    path.push_rapid(start, safe_z);
-                    path.push_feed(start, z + allowance_mm, tool.plunge_rate_mm_min);
-                    for point in contour.iter().skip(1) {
-                        path.push_feed(*point, z + allowance_mm, tool.feed_rate_mm_min);
-                    }
-                    path.push_rapid(*contour.last().unwrap(), safe_z);
+                    let points = contour
+                        .iter()
+                        .map(|point| [point[0], point[1], z + allowance_mm])
+                        .collect::<Vec<_>>();
+                    append_surface_run(
+                        &mut path,
+                        &mut points.clone(),
+                        safe_z,
+                        tool,
+                        setup.ramp_angle_deg,
+                    );
                 }
                 levels += 1;
                 if levels > 512 {
@@ -156,7 +172,18 @@ pub fn generate(
     if path.is_empty() {
         return Err("no finishing moves intersected the STEP mesh".into());
     }
+    path.simplify_feed_runs(setup.path_tolerance_mm)?;
     ensure_path_inside_stock(&path, setup, tool)?;
+    validate_travel_clearance(&path, setup)?;
+    if tool.shape == ToolShape::Flat && strategy != FinishStrategy::Waterline {
+        validate_flat_gouges(
+            &path,
+            &query,
+            setup.path_tolerance_mm,
+            setup.chordal_tolerance_mm,
+        )?;
+    }
+    validate_holder_clearance(&path, &query, tool, setup.path_tolerance_mm)?;
     Ok(path)
 }
 
@@ -193,18 +220,166 @@ fn compensate(xy: [f64; 2], mut sample: SurfaceSample, tool: &Tool, allowance: f
     }
 }
 
-fn append_surface_run(path: &mut Toolpath, run: &mut Vec<[f64; 3]>, safe_z: f64, tool: &Tool) {
+fn append_surface_run(
+    path: &mut Toolpath,
+    run: &mut Vec<[f64; 3]>,
+    safe_z: f64,
+    tool: &Tool,
+    ramp_angle_deg: f64,
+) {
     if run.is_empty() {
         return;
     }
     path.push_rapid([run[0][0], run[0][1]], safe_z);
-    path.push_feed([run[0][0], run[0][1]], run[0][2], tool.plunge_rate_mm_min);
-    for point in run.iter().skip(1) {
-        path.push_feed([point[0], point[1]], point[2], tool.feed_rate_mm_min);
+    let total_length: f64 = run
+        .windows(2)
+        .map(|pair| (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]))
+        .sum();
+    let ramp_rise = if ramp_angle_deg > 0.0 {
+        (total_length * ramp_angle_deg.to_radians().tan()).min(tool.diameter_mm)
+    } else {
+        0.0
+    };
+    path.push_feed(
+        [run[0][0], run[0][1]],
+        run[0][2] + ramp_rise,
+        tool.plunge_rate_mm_min,
+    );
+    let mut distance = 0.0;
+    for pair in run.windows(2) {
+        distance += (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
+        let remaining_rise = (ramp_rise - distance * ramp_angle_deg.to_radians().tan()).max(0.0);
+        path.push_feed(
+            [pair[1][0], pair[1][1]],
+            pair[1][2] + remaining_rise,
+            tool.feed_rate_mm_min,
+        );
+    }
+    if ramp_angle_deg > 0.0 && run.len() > 1 {
+        let mut distance = 0.0;
+        for pair in run.windows(2).rev() {
+            distance += (pair[1][0] - pair[0][0]).hypot(pair[1][1] - pair[0][1]);
+            let lift = (distance * ramp_angle_deg.to_radians().tan()).min(ramp_rise);
+            path.push_feed(
+                [pair[0][0], pair[0][1]],
+                pair[0][2] + lift,
+                tool.feed_rate_mm_min,
+            );
+            if lift >= ramp_rise {
+                break;
+            }
+        }
     }
     let last = run.last().unwrap();
     path.push_rapid([last[0], last[1]], safe_z);
     run.clear();
+}
+
+fn validate_travel_clearance(path: &Toolpath, setup: &MachiningSetup) -> Result<(), String> {
+    let stock_top = setup.stock_origin_mm[2] + setup.stock_size_mm[2];
+    let required_z = stock_top + setup.clearance_mm;
+    if path.moves.iter().any(|movement| matches!(movement, crate::cam::toolpath::ToolMove::Rapid { z, .. } if *z + 1e-9 < required_z)) {
+        return Err("rapid travel is below the configured stock clearance height".into());
+    }
+    Ok(())
+}
+
+/// Approximate flat-cutter centerline gouge check against the tessellated
+/// surface. Feed segments are sampled at path tolerance and compared with the
+/// surface using chordal tolerance; this is not a swept-solid proof.
+fn validate_flat_gouges(
+    path: &Toolpath,
+    query: &MeshQuery<'_>,
+    path_tolerance: f64,
+    chordal_tolerance: f64,
+) -> Result<(), String> {
+    use crate::cam::toolpath::ToolMove;
+    let mut position: Option<[f64; 3]> = None;
+    for movement in &path.moves {
+        match movement {
+            ToolMove::Rapid { to, z } => position = Some([to[0], to[1], *z]),
+            ToolMove::Feed { to, z, .. } => {
+                if let Some(start) = position {
+                    let end = [to[0], to[1], *z];
+                    let length = ((end[0] - start[0]).powi(2)
+                        + (end[1] - start[1]).powi(2)
+                        + (end[2] - start[2]).powi(2))
+                    .sqrt();
+                    let count = (length / path_tolerance.max(0.01)).ceil().max(1.0) as usize;
+                    for index in 0..=count {
+                        let t = index as f64 / count as f64;
+                        let x = start[0] + (end[0] - start[0]) * t;
+                        let y = start[1] + (end[1] - start[1]) * t;
+                        let z = start[2] + (end[2] - start[2]) * t;
+                        if query
+                            .height_at_xy(x, y)
+                            .is_some_and(|surface| surface.height > z + chordal_tolerance)
+                        {
+                            return Err(
+                                "approximate flat-tool gouge check failed along a finishing move"
+                                    .into(),
+                            );
+                        }
+                    }
+                }
+                position = Some([to[0], to[1], *z]);
+            }
+            ToolMove::Arc { to, z, .. } => position = Some([to[0], to[1], *z]),
+            ToolMove::Drill { at, depth, .. } => position = Some([at[0], at[1], *depth]),
+        }
+    }
+    Ok(())
+}
+
+/// Approximate holder collision check using a sampled cylindrical envelope.
+/// Waterline surfaces and the model itself are tessellated, so this is a warning-grade check.
+fn validate_holder_clearance(
+    path: &Toolpath,
+    query: &MeshQuery<'_>,
+    tool: &Tool,
+    spacing_mm: f64,
+) -> Result<(), String> {
+    use crate::cam::toolpath::ToolMove;
+    let mut position: Option<[f64; 3]> = None;
+    let radius = tool.diameter_mm * 0.5 + tool.holder_clearance_mm;
+    for movement in &path.moves {
+        match movement {
+            ToolMove::Rapid { to, z } => position = Some([to[0], to[1], *z]),
+            ToolMove::Feed { to, z, .. } => {
+                if let Some(start) = position {
+                    let end = [to[0], to[1], *z];
+                    let distance = ((end[0] - start[0]).powi(2)
+                        + (end[1] - start[1]).powi(2)
+                        + (end[2] - start[2]).powi(2))
+                    .sqrt();
+                    let samples = (distance / spacing_mm.max(0.01)).ceil().max(1.0) as usize;
+                    for step in 0..=samples {
+                        let t = step as f64 / samples as f64;
+                        let x = start[0] + (end[0] - start[0]) * t;
+                        let y = start[1] + (end[1] - start[1]) * t;
+                        let holder_bottom =
+                            start[2] + (end[2] - start[2]) * t + tool.flute_length_mm;
+                        for radial_sample in 0..16 {
+                            let angle = radial_sample as f64 * std::f64::consts::TAU / 16.0;
+                            if query
+                                .height_at_xy(x + radius * angle.cos(), y + radius * angle.sin())
+                                .is_some_and(|surface| surface.height > holder_bottom + 1e-6)
+                            {
+                                return Err(
+                                    "approximate holder collision detected along a finishing move"
+                                        .into(),
+                                );
+                            }
+                        }
+                    }
+                }
+                position = Some([to[0], to[1], *z]);
+            }
+            ToolMove::Arc { to, z, .. } => position = Some([to[0], to[1], *z]),
+            ToolMove::Drill { at, depth, .. } => position = Some([at[0], at[1], *depth]),
+        }
+    }
+    Ok(())
 }
 
 fn append_edge(points: &mut Vec<[f64; 2]>, start: [f64; 2], end: [f64; 2], spacing: f64) {
@@ -388,6 +563,10 @@ mod tests {
         ] {
             let path = generate(&model, &setup, &Tool::default(), strategy, 0.5, 0.0).unwrap();
             assert!(!path.is_empty(), "{strategy:?} generated no moves");
+            assert!(path.moves.iter().any(|movement| matches!(movement, crate::cam::toolpath::ToolMove::Rapid { z, .. } if *z >= 12.0)));
+            if strategy != FinishStrategy::Waterline {
+                assert!(path.moves.iter().any(|movement| matches!(movement, crate::cam::toolpath::ToolMove::Feed { z, .. } if *z > model.bounds[1][2] as f64)));
+            }
         }
     }
 

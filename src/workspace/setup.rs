@@ -23,6 +23,17 @@ pub struct MachiningSetup {
     pub stepover_percent: f64,
     pub chip_load_mm: f64,
     pub ramp_angle_deg: f64,
+    #[serde(default = "default_chordal_tolerance")]
+    pub chordal_tolerance_mm: f64,
+    #[serde(default = "default_path_tolerance")]
+    pub path_tolerance_mm: f64,
+}
+
+fn default_chordal_tolerance() -> f64 {
+    0.05
+}
+fn default_path_tolerance() -> f64 {
+    0.02
 }
 
 impl Default for MachiningSetup {
@@ -40,6 +51,8 @@ impl Default for MachiningSetup {
             stepover_percent: 40.0,
             chip_load_mm: 0.05,
             ramp_angle_deg: 3.0,
+            chordal_tolerance_mm: default_chordal_tolerance(),
+            path_tolerance_mm: default_path_tolerance(),
         }
     }
 }
@@ -82,6 +95,14 @@ impl MachiningSetup {
         }
         if !self.ramp_angle_deg.is_finite() || !(0.0..=45.0).contains(&self.ramp_angle_deg) {
             return Err("ramp angle must be between 0 and 45 degrees".into());
+        }
+        if !self.chordal_tolerance_mm.is_finite()
+            || !(0.001..=1.0).contains(&self.chordal_tolerance_mm)
+        {
+            return Err("STEP chordal tolerance must be between 0.001 and 1 mm".into());
+        }
+        if !self.path_tolerance_mm.is_finite() || !(0.001..=1.0).contains(&self.path_tolerance_mm) {
+            return Err("path tolerance must be between 0.001 and 1 mm".into());
         }
         Ok(())
     }
@@ -181,6 +202,18 @@ mod tests {
         let setup: MachiningSetup = serde_json::from_str("{}").unwrap();
         assert_eq!(setup.stock_size_mm, [100.0, 100.0, 20.0]);
         assert_eq!(setup.axis, WorkAxis::ZUp);
+        assert_eq!(setup.chordal_tolerance_mm, 0.05);
+        assert_eq!(setup.path_tolerance_mm, 0.02);
+    }
+
+    #[test]
+    fn tolerance_bounds_are_configurable_and_validated() {
+        let mut setup = MachiningSetup::default();
+        setup.chordal_tolerance_mm = 0.01;
+        setup.path_tolerance_mm = 0.005;
+        assert!(setup.validate().is_ok());
+        setup.path_tolerance_mm = 0.0;
+        assert!(setup.validate().unwrap_err().contains("path tolerance"));
     }
 
     #[test]

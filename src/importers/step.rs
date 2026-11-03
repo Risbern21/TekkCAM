@@ -65,8 +65,18 @@ impl Affine {
 /// placed display bodies. Exact surfaces are tessellated by the STEP reader;
 /// triangle-to-face identity and occurrence transforms are retained.
 pub fn parse(path: &str) -> anyhow::Result<Model> {
+    parse_with_chordal_tolerance(path, 0.05)
+}
+
+/// Read STEP with an absolute chordal tessellation tolerance in millimeters.
+pub fn parse_with_chordal_tolerance(path: &str, tolerance_mm: f64) -> anyhow::Result<Model> {
+    if !tolerance_mm.is_finite() || !(0.001..=1.0).contains(&tolerance_mm) {
+        anyhow::bail!("STEP chordal tolerance must be between 0.001 and 1 mm");
+    }
     let bytes = std::fs::read(path)?;
-    let step = oxideav_step::read_step(&bytes)
+    let mut options = oxideav_step::ReadOptions::default();
+    options.tolerance.absolute = Some(tolerance_mm * 0.001);
+    let step = oxideav_step::read_step_with(&bytes, &options)
         .map_err(|error| anyhow::anyhow!("STEP import failed: {error}"))?;
     let source_unit = detect_length_unit(step.length_unit_metres);
     let unit_scale = if source_unit == StepLengthUnit::Unknown {
@@ -323,6 +333,17 @@ mod tests {
             .bodies
             .iter()
             .all(|body| body.triangle_face_ids.len() == body.triangle_count));
+    }
+
+    #[test]
+    fn step_import_accepts_configured_chordal_tolerance_and_rejects_invalid_values() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/assets/samples/three_parts_ap214.step"
+        );
+        let model = parse_with_chordal_tolerance(path, 0.02).unwrap();
+        assert_eq!(model.bodies.len(), 3);
+        assert!(parse_with_chordal_tolerance(path, 0.0).is_err());
     }
 
     #[test]

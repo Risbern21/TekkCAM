@@ -430,6 +430,14 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         .add(egui::DragValue::new(&mut setup.ramp_angle_deg).range(0.0..=45.0))
                         .changed();
                 });
+                for (label, value) in [
+                    ("STEP chordal tolerance", &mut setup.chordal_tolerance_mm),
+                    ("Path tolerance", &mut setup.path_tolerance_mm),
+                ] {
+                    prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
+                        project_changed |= unit_drag(ui, value, units, 0.005, 0.001, 1.0);
+                    });
+                }
                 prop_row(ui, "Material", |ui| {
                     project_changed |= ui.text_edit_singleline(&mut setup.material).changed();
                 });
