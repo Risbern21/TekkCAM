@@ -1,3 +1,4 @@
+use crate::cam::chain::{chain_segments, offset_chain, ramped_pass, DEFAULT_CHAIN_TOLERANCE_MM};
 use crate::{
     cam::{
         plugin::PluginRegistry,
@@ -40,6 +41,24 @@ pub struct Operation {
     pub toolpath: Toolpath,
     #[serde(default)]
     pub plugin_parameters: Vec<f64>,
+    /// Ramp-entry angle in degrees for contour/profile cuts (Fusion `rampAngle`).
+    /// Zero keeps the vertical plunge.
+    #[serde(default)]
+    pub ramp_angle_deg: f64,
+    /// Peck depth for drilling (Fusion `peckingDepth`). Zero drills in one plunge.
+    #[serde(default)]
+    pub peck_depth_mm: f64,
+    /// Retract distance between pecks (Fusion `chipBreakDistance`). Zero retracts
+    /// fully to the surface after every peck.
+    #[serde(default)]
+    pub chip_break_mm: f64,
+    /// Pocket stepover as a fraction of tool diameter (Fusion `stepover`).
+    #[serde(default = "default_stepover_ratio")]
+    pub stepover_ratio: f64,
+}
+
+fn default_stepover_ratio() -> f64 {
+    0.8
 }
 
 impl Operation {
@@ -56,6 +75,10 @@ impl Operation {
             generated: false,
             toolpath: Toolpath::default(),
             plugin_parameters: Vec::new(),
+            ramp_angle_deg: 0.0,
+            peck_depth_mm: 0.0,
+            chip_break_mm: 0.0,
+            stepover_ratio: default_stepover_ratio(),
         }
     }
     pub fn isolation() -> Self {
@@ -159,6 +182,26 @@ impl Operation {
         if !self.margin_mm.is_finite() || self.margin_mm < 0.0 {
             return Err("operation margin must be non-negative".into());
         }
+        if !self.ramp_angle_deg.is_finite() || !(0.0..=45.0).contains(&self.ramp_angle_deg) {
+            return Err("ramp angle must be between 0 and 45 degrees".into());
+        }
+        if !self.peck_depth_mm.is_finite() || self.peck_depth_mm < 0.0 {
+            return Err("peck depth must be non-negative".into());
+        }
+        if !self.chip_break_mm.is_finite()
+            || self.chip_break_mm < 0.0
+            || (self.peck_depth_mm > 0.0 && self.chip_break_mm >= self.peck_depth_mm)
+        {
+            return Err(
+                "chip-break distance must be non-negative and smaller than the peck depth".into(),
+            );
+        }
+        if !self.stepover_ratio.is_finite()
+            || self.stepover_ratio <= 0.0
+            || self.stepover_ratio > 1.0
+        {
+            return Err("stepover must be a fraction of tool diameter in (0, 1]".into());
+        }
         if self.kind == OperationKind::Drill && geometry.drills.is_empty() {
             return Err("selected geometry contains no drill hits".into());
         }
@@ -168,13 +211,21 @@ impl Operation {
         let depth = -self.total_depth_mm;
         let mut path = Toolpath::default();
         match &self.kind {
-            OperationKind::Drill => generate_drills(&mut path, geometry, depth, &self.tool),
+            OperationKind::Drill => generate_drills(
+                &mut path,
+                geometry,
+                depth,
+                &self.tool,
+                self.peck_depth_mm,
+                self.chip_break_mm,
+            ),
             OperationKind::Pocket => generate_pocket(
                 &mut path,
                 geometry,
                 depth,
                 &self.tool,
                 self.depth_per_pass_mm,
+                self.stepover_ratio,
             ),
             OperationKind::Isolation | OperationKind::Contour | OperationKind::Placeholder => {
                 generate_lines(
@@ -185,6 +236,7 @@ impl Operation {
                     self.margin_mm,
                     matches!(&self.kind, OperationKind::Isolation),
                     self.depth_per_pass_mm,
+                    self.ramp_angle_deg,
                 )
             }
             OperationKind::ModelProfile2D => generate_lines(
@@ -195,6 +247,7 @@ impl Operation {
                 self.margin_mm + self.tool.diameter_mm * 0.5,
                 false,
                 self.depth_per_pass_mm,
+                self.ramp_angle_deg,
             ),
             OperationKind::Roughing3D => {
                 return Err("3D roughing requires an imported STEP model".into());
@@ -232,7 +285,14 @@ fn pass_depths(total: f64, step: f64) -> Vec<f64> {
     out.push(total);
     out
 }
-fn generate_drills(path: &mut Toolpath, g: &Geometry, depth: f64, tool: &Tool) {
+fn generate_drills(
+    path: &mut Toolpath,
+    g: &Geometry,
+    depth: f64,
+    tool: &Tool,
+    peck: f64,
+    chip_break: f64,
+) {
     let mut hits = g.drills.clone();
     let mut pos = [0.0, 0.0];
     while !hits.is_empty() {
@@ -248,15 +308,40 @@ fn generate_drills(path: &mut Toolpath, g: &Geometry, depth: f64, tool: &Tool) {
         let h = hits.remove(i);
         let p = [h.x, h.y];
         path.push_rapid(p, 0.0);
-        path.moves.push(ToolMove::Drill {
-            at: p,
-            depth,
-            retract: 0.0,
-            plunge_mm_min: tool.plunge_rate_mm_min,
-        });
+        if peck > 0.0 && peck < -depth {
+            // Peck drilling expands to plain feed/rapid moves so it posts the
+            // same on GRBL (no canned cycles) and LinuxCNC.
+            let mut z = 0.0;
+            loop {
+                let next = (z - peck).max(depth);
+                path.push_feed(p, next, tool.plunge_rate_mm_min);
+                if next <= depth {
+                    break;
+                }
+                if chip_break > 0.0 {
+                    path.push_feed(p, next + chip_break, tool.plunge_rate_mm_min);
+                } else {
+                    // A rapid always retracts to safe Z first; re-enter just
+                    // above the last peck depth.
+                    path.push_rapid(p, (next + PECK_REENTRY_CLEARANCE_MM).min(0.0));
+                }
+                z = next;
+            }
+        } else {
+            path.moves.push(ToolMove::Drill {
+                at: p,
+                depth,
+                retract: 0.0,
+                plunge_mm_min: tool.plunge_rate_mm_min,
+            });
+        }
         pos = p;
     }
 }
+/// Vertical clearance used when re-entering a hole between full-retract pecks.
+const PECK_REENTRY_CLEARANCE_MM: f64 = 0.5;
+
+#[allow(clippy::too_many_arguments)]
 fn generate_lines(
     path: &mut Toolpath,
     g: &Geometry,
@@ -265,34 +350,54 @@ fn generate_lines(
     margin: f64,
     isolation: bool,
     pass: f64,
+    ramp_angle_deg: f64,
 ) {
     let off = if isolation {
         tool.diameter_mm * 0.5 + margin
     } else {
         margin
     };
-    for seg in g.lines.chunks_exact(2) {
-        let a = [seg[0][0] as f64, seg[0][1] as f64];
-        let b = [seg[1][0] as f64, seg[1][1] as f64];
-        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
-        let len = (dx * dx + dy * dy).sqrt();
-        if len < 1e-9 {
+    for chain in chain_segments(&g.lines, DEFAULT_CHAIN_TOLERANCE_MM) {
+        let points = offset_chain(&chain, off);
+        if points.len() < 2 {
             continue;
         }
-        let n = [-dy / len * off, dx / len * off];
-        let a = [a[0] + n[0], a[1] + n[1]];
-        let b = [b[0] + n[0], b[1] + n[1]];
+        let mut z_prev = 0.0;
         for z in pass_depths(depth, pass).into_iter().take(256) {
-            path.push_rapid(a, 0.0);
-            path.push_feed(a, z, tool.plunge_rate_mm_min);
-            path.push_feed(b, z, tool.feed_rate_mm_min);
+            path.push_rapid(points[0], z_prev);
+            match ramped_pass(&points, chain.closed, z_prev, z, ramp_angle_deg) {
+                Some(moves) => {
+                    for m in moves {
+                        let feed = if m.ramp {
+                            tool.plunge_rate_mm_min
+                        } else {
+                            tool.feed_rate_mm_min
+                        };
+                        path.push_feed(m.to, m.z, feed);
+                    }
+                }
+                None => {
+                    path.push_feed(points[0], z, tool.plunge_rate_mm_min);
+                    for p in &points[1..] {
+                        path.push_feed(*p, z, tool.feed_rate_mm_min);
+                    }
+                }
+            }
+            z_prev = z;
         }
     }
 }
-fn generate_pocket(path: &mut Toolpath, g: &Geometry, depth: f64, tool: &Tool, pass: f64) {
+fn generate_pocket(
+    path: &mut Toolpath,
+    g: &Geometry,
+    depth: f64,
+    tool: &Tool,
+    pass: f64,
+    stepover_ratio: f64,
+) {
     let Some((mn, mx)) = g.bounds() else { return };
     let r = tool.diameter_mm * 0.5;
-    let step = tool.diameter_mm.max(0.05) * 0.8;
+    let step = tool.diameter_mm.max(0.05) * stepover_ratio;
     for z in pass_depths(depth, pass) {
         let mut y = mn[1] as f64 + r;
         let mut left = true;
@@ -334,6 +439,206 @@ mod tests {
         o.generate_from_geometry(&g).unwrap();
         assert_eq!(o.toolpath.moves.len(), 4);
         assert_eq!(o.toolpath.moves[0].end(), [1.0, 0.0]);
+    }
+
+    fn square_geometry() -> Geometry {
+        let mut g = Geometry::default();
+        // Shuffled, partly flipped edges of a 10 mm square.
+        g.lines = vec![
+            [10.0, 0.0],
+            [10.0, 10.0],
+            [0.0, 0.0],
+            [10.0, 0.0],
+            [0.0, 10.0],
+            [10.0, 10.0],
+            [0.0, 10.0],
+            [0.0, 0.0],
+        ];
+        g
+    }
+
+    #[test]
+    fn contour_chains_edges_into_one_continuous_loop() {
+        let mut o = Operation::contour();
+        o.total_depth_mm = 1.0;
+        o.depth_per_pass_mm = 1.0;
+        o.generate_from_geometry(&square_geometry()).unwrap();
+        let rapids = o
+            .toolpath
+            .moves
+            .iter()
+            .filter(|m| matches!(m, ToolMove::Rapid { .. }))
+            .count();
+        // One chain, one pass: a single positioning rapid (not one per edge).
+        assert_eq!(rapids, 1);
+        // plunge + 4 edges around the loop
+        assert_eq!(o.toolpath.moves.len(), 1 + 1 + 4);
+    }
+
+    #[test]
+    fn ramped_contour_never_cuts_below_target_and_ends_at_full_depth() {
+        let mut o = Operation::contour();
+        o.total_depth_mm = 2.0;
+        o.depth_per_pass_mm = 2.0;
+        o.ramp_angle_deg = 10.0;
+        o.generate_from_geometry(&square_geometry()).unwrap();
+        let zs: Vec<f64> = o
+            .toolpath
+            .moves
+            .iter()
+            .filter_map(|m| match m {
+                ToolMove::Feed { z, .. } => Some(*z),
+                _ => None,
+            })
+            .collect();
+        assert!(zs.iter().all(|z| *z >= -2.0 - 1e-9 && *z <= 1e-9));
+        assert!(
+            zs.iter().any(|z| *z > -2.0 + 1e-6),
+            "has descending ramp moves"
+        );
+        assert!((zs.last().unwrap() + 2.0).abs() < 1e-9);
+        // No vertical plunge: the first feed is already part of the ramp.
+        match &o.toolpath.moves[1] {
+            ToolMove::Feed { z, .. } => assert!(*z > -2.0 + 1e-6),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn peck_drilling_steps_down_and_reaches_full_depth() {
+        let mut g = Geometry::default();
+        g.drills = vec![crate::workspace::object::DrillHit {
+            x: 1.0,
+            y: 1.0,
+            diameter: 1.0,
+        }];
+        let mut o = Operation::drill();
+        o.total_depth_mm = 2.5;
+        o.peck_depth_mm = 1.0;
+        o.generate_from_geometry(&g).unwrap();
+        let feeds: Vec<f64> = o
+            .toolpath
+            .moves
+            .iter()
+            .filter_map(|m| match m {
+                ToolMove::Feed { z, .. } => Some(*z),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(feeds, vec![-1.0, -2.0, -2.5]);
+        assert!(!o
+            .toolpath
+            .moves
+            .iter()
+            .any(|m| matches!(m, ToolMove::Drill { .. })));
+        // Full-retract pecks re-enter just above the last depth.
+        assert!(o
+            .toolpath
+            .moves
+            .iter()
+            .any(|m| matches!(m, ToolMove::Rapid { z, .. } if (*z + 0.5).abs() < 1e-9)));
+    }
+
+    #[test]
+    fn chip_break_retracts_by_the_requested_distance_without_leaving_the_hole() {
+        let mut g = Geometry::default();
+        g.drills = vec![crate::workspace::object::DrillHit {
+            x: 0.0,
+            y: 0.0,
+            diameter: 1.0,
+        }];
+        let mut o = Operation::drill();
+        o.total_depth_mm = 3.0;
+        o.peck_depth_mm = 1.5;
+        o.chip_break_mm = 0.3;
+        o.generate_from_geometry(&g).unwrap();
+        let feeds: Vec<f64> = o
+            .toolpath
+            .moves
+            .iter()
+            .filter_map(|m| match m {
+                ToolMove::Feed { z, .. } => Some(*z),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(feeds, vec![-1.5, -1.2, -3.0]);
+        let rapids = o
+            .toolpath
+            .moves
+            .iter()
+            .filter(|m| matches!(m, ToolMove::Rapid { .. }))
+            .count();
+        assert_eq!(rapids, 1);
+    }
+
+    #[test]
+    fn drilling_without_peck_keeps_the_single_plunge_move() {
+        let mut g = Geometry::default();
+        g.drills = vec![crate::workspace::object::DrillHit {
+            x: 0.0,
+            y: 0.0,
+            diameter: 1.0,
+        }];
+        let mut o = Operation::drill();
+        o.generate_from_geometry(&g).unwrap();
+        assert!(matches!(o.toolpath.moves[1], ToolMove::Drill { .. }));
+    }
+
+    #[test]
+    fn pocket_stepover_ratio_controls_pass_spacing() {
+        let mut g = Geometry::default();
+        g.lines = vec![[0.0, 0.0], [10.0, 10.0]];
+        let count = |ratio: f64| {
+            let mut o = Operation::pocket();
+            o.total_depth_mm = 0.2;
+            o.depth_per_pass_mm = 0.2;
+            o.stepover_ratio = ratio;
+            o.generate_from_geometry(&g).unwrap();
+            o.toolpath
+                .moves
+                .iter()
+                .filter(|m| matches!(m, ToolMove::Rapid { .. }))
+                .count()
+        };
+        assert!(count(0.4) > count(0.9));
+    }
+
+    #[test]
+    fn rejects_invalid_ramp_peck_and_stepover_settings() {
+        let g = square_geometry();
+        for mutate in [
+            (|o: &mut Operation| o.ramp_angle_deg = 60.0) as fn(&mut Operation),
+            |o| o.peck_depth_mm = -1.0,
+            |o| {
+                o.peck_depth_mm = 1.0;
+                o.chip_break_mm = 1.0;
+            },
+            |o| o.stepover_ratio = 0.0,
+            |o| o.stepover_ratio = f64::NAN,
+        ] {
+            let mut o = Operation::contour();
+            mutate(&mut o);
+            assert!(o.generate_from_geometry(&g).is_err());
+        }
+    }
+
+    #[test]
+    fn old_operation_json_loads_with_unchanged_defaults() {
+        let o = Operation::contour();
+        let mut value = serde_json::to_value(&o).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        for key in [
+            "ramp_angle_deg",
+            "peck_depth_mm",
+            "chip_break_mm",
+            "stepover_ratio",
+        ] {
+            obj.remove(key);
+        }
+        let loaded: Operation = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.ramp_angle_deg, 0.0);
+        assert_eq!(loaded.peck_depth_mm, 0.0);
+        assert_eq!(loaded.stepover_ratio, 0.8);
     }
 
     #[test]

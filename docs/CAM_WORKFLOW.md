@@ -27,3 +27,14 @@ The optional preview is a 64 by 64 height field over the configured stock footpr
 ## Controller and machine limitations
 
 The posts currently target the application's GRBL and LinuxCNC dialect choices. GRBL manual tool-change pauses require operator supervision. The optional travel check verifies programmed tool-center coordinates against user-entered bounds; it cannot validate controller configuration, physical homing, actual work offsets, machine state, spindle behavior, clamps, or emergency-stop hardware. Review the exported G-code and machine setup before running a job. Further path-check limitations are documented in [SAFETY.md](SAFETY.md).
+
+## Fusion-style 2D options
+
+Derived from a feature study of Fusion 360 CAM ([FUSION_CAM_EVIDENCE.md](FUSION_CAM_EVIDENCE.md)):
+
+- **Contour chaining.** Isolation, contour and STEP-profile operations link loose edges (within 0.001 mm) into continuous polylines, mitre the offset at corners (bevel beyond 2x the offset), and cut each chain in one pass without retracting between edges. The first edge of a chain fixes its travel direction, and the offset is to the left of that direction.
+- **Ramp entry.** A non-zero ramp angle (0-45 degrees) descends along the chain at the plunge feed instead of plunging vertically, then re-cuts the ramped section at full depth. A chain too short for the requested angle falls back to a vertical plunge. Ramps run along the cut path, not in a lead-in outside the part, so on closed profiles they cut inside the finished contour; use stock to leave or a sacrificial edge where that matters.
+- **Peck drilling.** A peck depth expands drilling into feed and retract moves. With a chip-break distance the tool backs out by that distance and continues; without it, it retracts fully to safe Z and re-enters 0.5 mm above the last depth. Dwell is not implemented.
+- **Pocket stepover.** Expressed as a fraction of the tool diameter (default 0.8).
+
+Not implemented: lead-in/out arcs, feed reduction on inner corners, adaptive clearing, and the Face, Chamfer2D, Slot and Thread strategies.

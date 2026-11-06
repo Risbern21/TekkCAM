@@ -343,6 +343,59 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     unit_drag(ui, &mut op.margin_mm, units, 0.01, 0.0, 5.0);
                             });
 
+                            use crate::cam::operations::OperationKind as Kind;
+                            if matches!(
+                                &op.kind,
+                                Kind::Isolation | Kind::Contour | Kind::ModelProfile2D
+                            ) {
+                                prop_row(ui, "Ramp angle (deg, 0 = plunge)", |ui| {
+                                    project_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut op.ramp_angle_deg)
+                                                .speed(0.1)
+                                                .range(0.0..=45.0),
+                                        )
+                                        .changed();
+                                });
+                            }
+                            if op.kind == Kind::Pocket {
+                                prop_row(ui, "Stepover (x tool dia.)", |ui| {
+                                    project_changed |= ui
+                                        .add(
+                                            egui::DragValue::new(&mut op.stepover_ratio)
+                                                .speed(0.01)
+                                                .range(0.05..=1.0),
+                                        )
+                                        .changed();
+                                });
+                            }
+                            if op.kind == Kind::Drill {
+                                prop_row(ui, &format!("Peck depth ({})", units.label()), |ui| {
+                                    project_changed |= unit_drag(
+                                        ui,
+                                        &mut op.peck_depth_mm,
+                                        units,
+                                        0.05,
+                                        0.0,
+                                        50.0,
+                                    );
+                                });
+                                prop_row(
+                                    ui,
+                                    &format!("Chip-break retract ({})", units.label()),
+                                    |ui| {
+                                        project_changed |= unit_drag(
+                                            ui,
+                                            &mut op.chip_break_mm,
+                                            units,
+                                            0.05,
+                                            0.0,
+                                            50.0,
+                                        );
+                                    },
+                                );
+                            }
+
                             ui.add_space(8.0);
                             section_header(ui, "TOOL DATABASE");
                             ui.add_space(4.0);

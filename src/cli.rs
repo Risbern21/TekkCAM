@@ -82,7 +82,7 @@ Usage:\n\
   tekkcam setup set --project FILE [--stock-size X,Y,Z] [--safe-z MM] [--machine-min X,Y,Z --machine-max X,Y,Z]\n\
   tekkcam operations list --project FILE [--json]\n\
   tekkcam operations add --project FILE --kind KIND [--name NAME] [--tool INDEX] [--json]\n\
-  tekkcam operations set --project FILE --index N [--depth MM] [--stepdown MM] [--margin MM] [--tool INDEX]\n\
+  tekkcam operations set --project FILE --index N [--depth MM] [--stepdown MM] [--margin MM] [--ramp-angle DEG] [--peck MM] [--chip-break MM] [--stepover-ratio R] [--tool INDEX]\n\
   tekkcam operations reorder --project FILE --order 2,0,1 [--json]\n\
   tekkcam generate --project FILE [--output FILE] [--json]\n\
   tekkcam help | version\n\n\
@@ -409,6 +409,10 @@ fn operations_command(args: &[String], json_output: bool) -> CliResult<()> {
             set_number(args, "--depth", &mut operation.total_depth_mm)?;
             set_number(args, "--stepdown", &mut operation.depth_per_pass_mm)?;
             set_number(args, "--margin", &mut operation.margin_mm)?;
+            set_number(args, "--ramp-angle", &mut operation.ramp_angle_deg)?;
+            set_number(args, "--peck", &mut operation.peck_depth_mm)?;
+            set_number(args, "--chip-break", &mut operation.chip_break_mm)?;
+            set_number(args, "--stepover-ratio", &mut operation.stepover_ratio)?;
             if let Some(tool) = selected_tool {
                 operation.tool = tool;
             }

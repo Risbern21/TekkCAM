@@ -174,3 +174,70 @@ fn cli_generates_reviewable_gcode_file_from_fixture_project() {
     assert!(gcode.contains("M30"));
     assert!(gcode.contains("G54"));
 }
+
+#[test]
+fn cli_peck_drilling_options_reach_the_generated_gcode() {
+    let project = temp_path("peck.tekkCAM");
+    let output = temp_path("peck.nc");
+    let p = project.to_str().unwrap();
+    assert!(
+        cli(&["import", "--project-out", p, "assets/samples/test.drl"])
+            .status
+            .success()
+    );
+    assert!(
+        cli(&["operations", "add", "--project", p, "--kind", "drill"])
+            .status
+            .success()
+    );
+    let set = cli(&[
+        "operations",
+        "set",
+        "--project",
+        p,
+        "--index",
+        "0",
+        "--depth",
+        "1.5",
+        "--peck",
+        "0.5",
+        "--chip-break",
+        "0.1",
+    ]);
+    assert!(
+        set.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+    let generated = cli(&[
+        "generate",
+        "--project",
+        p,
+        "--output",
+        output.to_str().unwrap(),
+    ]);
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    let gcode = std::fs::read_to_string(output).unwrap();
+    assert!(gcode.contains("Z-0.500"), "first peck missing:\n{gcode}");
+    assert!(gcode.contains("Z-0.400"), "chip-break retract missing");
+    assert!(gcode.contains("Z-1.500"), "full depth missing");
+
+    let bad = cli(&[
+        "operations",
+        "set",
+        "--project",
+        p,
+        "--index",
+        "0",
+        "--chip-break",
+        "9",
+    ]);
+    assert!(bad.status.success()); // stored; rejected when generating
+    let rejected = cli(&["generate", "--project", p]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("chip-break"));
+}
