@@ -440,13 +440,23 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                             ui.add_space(12.0);
 
                             // Generate button
+                            let button_text = if app.generation_pending {
+                                "◌  Generating Toolpath…"
+                            } else {
+                                "▶  Generate Toolpath"
+                            };
                             let btn = egui::Button::new(
-                                egui::RichText::new("▶  Generate Toolpath")
-                                    .color(egui::Color32::WHITE),
+                                egui::RichText::new(button_text).color(egui::Color32::WHITE),
                             )
                             .fill(egui::Color32::from_rgb(50, 100, 200));
 
-                            if ui.add_sized([ui.available_width(), 32.0], btn).clicked() {
+                            if ui
+                                .add_enabled_ui(!app.generation_pending, |ui| {
+                                    ui.add_sized([ui.available_width(), 32.0], btn)
+                                })
+                                .inner
+                                .clicked()
+                            {
                                 app.generate_operation(idx);
                             }
 

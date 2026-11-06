@@ -20,6 +20,19 @@ enum DialogResult {
     Export(Option<Result<PathBuf, String>>),
 }
 
+struct GenerationResult {
+    index: usize,
+    name: String,
+    result: Result<
+        (
+            crate::cam::toolpath::Toolpath,
+            Option<Result<crate::cam::roughing::RemainingStockEstimate, String>>,
+            &'static str,
+        ),
+        String,
+    >,
+}
+
 /// Top-level application state
 pub struct TekkCamApp {
     /// The active project (layers, objects, operations)
@@ -42,6 +55,9 @@ pub struct TekkCamApp {
     step_import_tx: Sender<(PathBuf, Result<crate::workspace::model::Model, String>)>,
     step_import_rx: Receiver<(PathBuf, Result<crate::workspace::model::Model, String>)>,
     step_imports_pending: usize,
+    generation_tx: Sender<GenerationResult>,
+    generation_rx: Receiver<GenerationResult>,
+    pub generation_pending: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -331,6 +347,7 @@ impl TekkCamApp {
         }
 
         let (step_import_tx, step_import_rx) = mpsc::channel();
+        let (generation_tx, generation_rx) = mpsc::channel();
         let mut app = Self {
             project: Project::default(),
             ui_state: UiState::default(),
@@ -346,6 +363,9 @@ impl TekkCamApp {
             step_import_tx,
             step_import_rx,
             step_imports_pending: 0,
+            generation_tx,
+            generation_rx,
+            generation_pending: false,
         };
         app.ui_state.display_units = app.preferences.display_units;
         app.ui_state.theme = app.preferences.theme;
@@ -604,7 +624,9 @@ impl TekkCamApp {
     }
 
     pub fn generate_operation(&mut self, index: usize) {
-        self.scene_sig.clear();
+        if self.generation_pending {
+            return;
+        }
         let Some(operation) = self.project.operations.get(index) else {
             return;
         };
@@ -628,60 +650,12 @@ impl TekkCamApp {
             self.ui_state.status_message = message;
             return;
         }
-        if matches!(
+        let operation = operation.clone();
+        let name = operation.name.clone();
+        let is_profile = matches!(
             &operation.kind,
             crate::cam::operations::OperationKind::ModelProfile2D
-        ) {
-            let model_index = self
-                .ui_state
-                .selected_model
-                .filter(|index| {
-                    self.project
-                        .models
-                        .get(*index)
-                        .is_some_and(|model| model.visible)
-                })
-                .or_else(|| self.project.models.iter().position(|model| model.visible));
-            let Some(model_index) = model_index else {
-                self.ui_state
-                    .console_log
-                    .push("✖ STEP face profile requires a visible model".into());
-                self.ui_state.status_message = "No visible STEP model".into();
-                return;
-            };
-            let geometry = match crate::cam::model_2d::selected_face_boundary(
-                &self.project.models[model_index],
-                &operation.source_face_ids,
-            ) {
-                Ok(geometry) => geometry,
-                Err(error) => {
-                    self.ui_state
-                        .console_log
-                        .push(format!("✖ STEP profile failed: {error}"));
-                    self.ui_state.status_message = "STEP profile failed".into();
-                    return;
-                }
-            };
-            let plugins = &self.plugin_registry;
-            let op = &mut self.project.operations[index];
-            match op.generate_from_geometry_with_plugins(&geometry, plugins) {
-                Ok(count) => {
-                    self.ui_state.project_dirty = true;
-                    self.ui_state.console_log.push(format!(
-                        "✔ Generated {count} STEP face profile moves for '{}'",
-                        op.name
-                    ));
-                    self.ui_state.status_message = format!("Generated {count} moves");
-                }
-                Err(error) => {
-                    self.ui_state
-                        .console_log
-                        .push(format!("✖ STEP profile failed: {error}"));
-                    self.ui_state.status_message = "STEP profile failed".into();
-                }
-            }
-            return;
-        }
+        );
         let is_roughing = matches!(
             &operation.kind,
             crate::cam::operations::OperationKind::Roughing3D
@@ -698,124 +672,142 @@ impl TekkCamApp {
             }
             _ => None,
         };
-        if is_roughing || finish_strategy.is_some() {
-            let model_index = self
-                .ui_state
-                .selected_model
-                .filter(|index| {
-                    self.project
-                        .models
-                        .get(*index)
-                        .is_some_and(|model| model.visible)
-                })
-                .or_else(|| self.project.models.iter().position(|model| model.visible));
-            let Some(model_index) = model_index else {
-                self.ui_state
-                    .console_log
-                    .push("✖ 3D machining requires a visible STEP model".into());
-                self.ui_state.status_message = "No visible STEP model".into();
-                return;
-            };
-            let result = if is_roughing {
-                crate::cam::roughing::generate(
-                    &self.project.models[model_index],
-                    &self.project.setup,
-                    &operation.tool,
-                    operation.margin_mm,
-                    None,
-                )
+        let model_index = self
+            .ui_state
+            .selected_model
+            .filter(|i| self.project.models.get(*i).is_some_and(|m| m.visible))
+            .or_else(|| self.project.models.iter().position(|m| m.visible));
+        let model_required = is_profile || is_roughing || finish_strategy.is_some();
+        let model = model_index
+            .and_then(|i| self.project.models.get(i))
+            .cloned();
+        if model_required && model.is_none() {
+            let message = if is_profile {
+                "STEP face profile requires a visible model"
             } else {
-                crate::cam::finishing::generate(
-                    &self.project.models[model_index],
-                    &self.project.setup,
-                    &operation.tool,
-                    finish_strategy.unwrap(),
-                    operation.tool.diameter_mm * self.project.setup.stepover_percent / 100.0,
-                    operation.margin_mm,
-                )
+                "3D machining requires a visible STEP model"
             };
-            match result {
-                Ok(path) => {
-                    let count = path.moves.len();
-                    let remaining_stock = if is_roughing {
-                        Some(crate::cam::roughing::estimate_remaining_stock(
-                            &self.project.models[model_index],
-                            &self.project.setup,
-                            &operation.tool,
-                            &path,
-                        ))
-                    } else {
-                        None
-                    };
-                    let op = &mut self.project.operations[index];
-                    op.toolpath = path;
-                    op.generated = count > 0;
-                    self.ui_state.project_dirty = true;
-                    self.ui_state.console_log.push(format!(
-                        "✔ Generated {count} 3D machining moves for '{}'",
-                        op.name
-                    ));
-                    self.ui_state.console_log.push(
-                        "⚠ 3D path gouge and holder checks are approximate and use the imported tessellation plus sampled cutter envelopes.".into(),
-                    );
-                    if let Some(estimate) = remaining_stock {
-                        match estimate {
-                            Ok(estimate) => self.ui_state.console_log.push(format!(
-                                "Approximate remaining stock: {:.2} mm³, max {:.3} mm over {} raster cells ({} uncovered).",
-                                estimate.volume_mm3,
-                                estimate.maximum_thickness_mm,
-                                estimate.sampled_cells,
-                                estimate.uncovered_cells,
-                            )),
-                            Err(error) => self.ui_state.console_log.push(format!(
-                                "⚠ Remaining-stock estimate unavailable: {error}"
-                            )),
-                        }
-                    }
-                    self.ui_state.status_message = format!("Generated {count} moves");
-                }
-                Err(error) => {
-                    self.ui_state
-                        .console_log
-                        .push(format!("✖ 3D machining failed: {error}"));
-                    self.ui_state.status_message = "3D machining failed".into();
-                }
-            }
+            self.ui_state.console_log.push(format!("✖ {message}"));
+            self.ui_state.status_message = "No visible STEP model".into();
             return;
         }
-        let source_layer_id = operation.source_layer_id;
         let geometry = self
             .project
             .layers
             .iter()
             .find(|layer| {
-                if let Some(id) = source_layer_id {
+                if let Some(id) = operation.source_layer_id {
                     layer.id == id && !layer.geometry.is_empty()
                 } else {
                     layer.visible && !layer.geometry.is_empty()
                 }
             })
             .map(|layer| layer.geometry.clone());
-        let Some(geometry) = geometry else {
+        if !model_required && geometry.is_none() {
             self.ui_state
                 .console_log
                 .push("✖ No visible geometry to machine".into());
             return;
+        }
+        let setup = self.project.setup.clone();
+        let plugins = self.plugin_registry.clone();
+        let tx = self.generation_tx.clone();
+        self.generation_pending = true;
+        self.ui_state.status_message = format!("Generating toolpath for '{name}'…");
+        std::thread::spawn(move || {
+            let result = (|| {
+                let mut operation = operation;
+                let (path, label) = if is_profile {
+                    let model = model.as_ref().expect("validated visible model");
+                    let geometry = crate::cam::model_2d::selected_face_boundary(
+                        model,
+                        &operation.source_face_ids,
+                    )?;
+                    operation.generate_from_geometry_with_plugins(&geometry, &plugins)?;
+                    (operation.toolpath, "STEP face profile")
+                } else if is_roughing || finish_strategy.is_some() {
+                    let model = model.as_ref().expect("validated visible model");
+                    let path = if is_roughing {
+                        crate::cam::roughing::generate(
+                            model,
+                            &setup,
+                            &operation.tool,
+                            operation.margin_mm,
+                            None,
+                        )?
+                    } else {
+                        crate::cam::finishing::generate(
+                            model,
+                            &setup,
+                            &operation.tool,
+                            finish_strategy.unwrap(),
+                            operation.tool.diameter_mm * setup.stepover_percent / 100.0,
+                            operation.margin_mm,
+                        )?
+                    };
+                    (path, "3D machining")
+                } else {
+                    operation.generate_from_geometry_with_plugins(
+                        geometry.as_ref().expect("validated geometry"),
+                        &plugins,
+                    )?;
+                    (operation.toolpath, "CAM")
+                };
+                let remaining = if is_roughing {
+                    Some(crate::cam::roughing::estimate_remaining_stock(
+                        model.as_ref().expect("validated model"),
+                        &setup,
+                        &operation.tool,
+                        &path,
+                    ))
+                } else {
+                    None
+                };
+                Ok((path, remaining, label))
+            })();
+            let _ = tx.send(GenerationResult {
+                index,
+                name,
+                result,
+            });
+        });
+    }
+
+    fn poll_generation(&mut self) {
+        let Ok(result) = self.generation_rx.try_recv() else {
+            return;
         };
-        let plugins = &self.plugin_registry;
-        let op = &mut self.project.operations[index];
-        match op.generate_from_geometry_with_plugins(&geometry, plugins) {
-            Ok(n) => {
-                self.ui_state.project_dirty = true;
+        self.generation_pending = false;
+        self.scene_sig.clear();
+        match result.result {
+            Ok((path, remaining_stock, label)) => {
+                let count = path.moves.len();
+                if let Some(operation) = self.project.operations.get_mut(result.index) {
+                    operation.toolpath = path;
+                    operation.generated = count > 0;
+                    self.ui_state.project_dirty = true;
+                }
+                self.ui_state.console_log.push(format!(
+                    "✔ Generated {count} {label} moves for '{}'",
+                    result.name
+                ));
+                if label == "3D machining" {
+                    self.ui_state.console_log.push("⚠ 3D path gouge and holder checks are approximate and use the imported tessellation plus sampled cutter envelopes.".into());
+                }
+                if let Some(estimate) = remaining_stock {
+                    match estimate {
+                        Ok(estimate) => self.ui_state.console_log.push(format!("Approximate remaining stock: {:.2} mm³, max {:.3} mm over {} raster cells ({} uncovered).", estimate.volume_mm3, estimate.maximum_thickness_mm, estimate.sampled_cells, estimate.uncovered_cells)),
+                        Err(error) => self.ui_state.console_log.push(format!("⚠ Remaining-stock estimate unavailable: {error}")),
+                    }
+                }
+                self.ui_state.status_message = format!("Generated {count} moves");
+            }
+            Err(error) => {
                 self.ui_state
                     .console_log
-                    .push(format!("✔ Generated {} moves for '{}'", n, op.name));
-                self.ui_state.status_message = format!("Generated {} moves", n);
+                    .push(format!("✖ Toolpath generation failed: {error}"));
+                self.ui_state.status_message = "Toolpath generation failed".into();
             }
-            Err(e) => self
-                .ui_state
-                .console_log
-                .push(format!("✖ CAM generation failed: {e}")),
         }
     }
 
@@ -1145,8 +1137,12 @@ impl eframe::App for TekkCamApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_dialog_result();
         self.poll_step_imports();
+        self.poll_generation();
         self.poll_machine_events();
         if self.step_imports_pending > 0 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(80));
+        }
+        if self.generation_pending {
             ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
         if self.ui_state.machine_connected {
