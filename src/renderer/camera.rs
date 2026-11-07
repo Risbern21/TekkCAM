@@ -14,7 +14,7 @@ impl Default for Camera2D {
     fn default() -> Self {
         Self {
             pan: Vec2::ZERO,
-            zoom: 50.0, // 50 px/mm by default
+            zoom: 25.0, // Start zoomed out enough to see both origin axes
         }
     }
 }

@@ -89,7 +89,29 @@ pub enum AppTheme {
 
 pub(crate) fn apply_theme(ctx: &egui::Context, theme: AppTheme) {
     let mut visuals = match theme {
-        AppTheme::Light => egui::Visuals::light(),
+        AppTheme::Light => {
+            let mut visuals = egui::Visuals::light();
+            let background = egui::Color32::from_rgb(250, 250, 250);
+            let panel = egui::Color32::from_rgb(228, 229, 241);
+            let control = egui::Color32::from_rgb(210, 211, 219);
+            let muted = egui::Color32::from_rgb(147, 148, 165);
+            let text = egui::Color32::from_rgb(72, 75, 106);
+            visuals.panel_fill = panel;
+            visuals.window_fill = panel;
+            visuals.extreme_bg_color = background;
+            visuals.faint_bg_color = background;
+            visuals.override_text_color = Some(text);
+            visuals.widgets.noninteractive.fg_stroke.color = text;
+            visuals.widgets.inactive.bg_fill = control;
+            visuals.widgets.inactive.fg_stroke.color = text;
+            visuals.widgets.hovered.bg_fill = muted;
+            visuals.widgets.hovered.fg_stroke.color = text;
+            visuals.widgets.active.bg_fill = text;
+            visuals.widgets.active.fg_stroke.color = background;
+            visuals.selection.bg_fill = control;
+            visuals.selection.stroke.color = text;
+            visuals
+        }
         AppTheme::Dark => {
             let mut visuals = egui::Visuals::dark();
             visuals.panel_fill = egui::Color32::from_rgb(18, 18, 24);
@@ -322,9 +344,7 @@ impl TekkCamApp {
         );
         fonts
             .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .push("sidebar_icons".into());
+            .insert(egui::FontFamily::Name("sidebar_icons".into()), vec!["sidebar_icons".into()]);
         cc.egui_ctx.set_fonts(fonts);
 
         let preferences = AppPreferences::load();

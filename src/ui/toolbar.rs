@@ -13,7 +13,7 @@ const ICON_LAYOUT_PANEL_OFF: char = '\u{EC01}';
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
-        egui::Color32::from_rgb(232, 235, 242)
+        egui::Color32::from_rgb(228, 229, 241)
     } else {
         egui::Color32::from_rgb(14, 14, 20)
     };
@@ -75,11 +75,6 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     }
                     if ui.button("↪  Redo").clicked() {
                         app.redo_project();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui.button("⚙  Settings").clicked() {
-                        app.ui_state.show_settings = true;
                         ui.close_menu();
                     }
                 });
@@ -206,6 +201,10 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     }
                 });
 
+                if ui.button("Settings").clicked() {
+                    app.ui_state.show_settings = true;
+                }
+
                 // ── Right-aligned status + connect button ─────────────────
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Machine connection badge
@@ -248,6 +247,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
+                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)
@@ -271,6 +271,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
+                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)
@@ -294,6 +295,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
+                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)

@@ -6,7 +6,7 @@ struct GridUniforms {
     view_proj: mat4x4<f32>,
     viewport_size: vec2<f32>,
     zoom: f32,
-    _pad: f32,
+    show_axes: f32,
     minor_spacing: f32,   // world units (mm) between minor lines
     major_spacing: f32,   // world units (mm) between major lines
     _pad2: vec2<f32>,
@@ -94,8 +94,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     // Origin axes (stronger)
     let origin_w = 2.0 / px_per_mm;
-    let ax = grid_line(wy, 1e9, origin_w);  // X axis (y == 0)
-    let ay = grid_line(wx, 1e9, origin_w);  // Y axis (x == 0)
+    let ax = grid_line(wy, 1e9, origin_w) * u.show_axes;  // X axis (y == 0)
+    let ay = grid_line(wx, 1e9, origin_w) * u.show_axes;  // Y axis (x == 0)
 
     // Compose colours
     let minor_col  = vec4(0.3, 0.3, 0.4, minor_alpha);

@@ -9,7 +9,7 @@ const DANGER: egui::Color32 = egui::Color32::from_rgb(220, 70, 70);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
-        egui::Color32::from_rgb(235, 238, 244)
+        egui::Color32::from_rgb(228, 229, 241)
     } else {
         egui::Color32::from_rgb(14, 14, 20)
     };
@@ -151,11 +151,12 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         |ui, visible_rows| {
                             for row in visible_rows {
                                 let line = &app.ui_state.console_log[row];
-                                let color = if line.starts_with("✖") || line.starts_with("Error")
-                                {
+                                let color = if line.starts_with("✖") || line.starts_with("Error") {
                                     DANGER
                                 } else if line.starts_with("✔") || line.contains("ready") {
                                     SUCCESS
+                                } else if app.ui_state.theme == crate::app::AppTheme::Light {
+                                    egui::Color32::from_rgb(72, 75, 106)
                                 } else {
                                     egui::Color32::from_rgb(180, 200, 180)
                                 };

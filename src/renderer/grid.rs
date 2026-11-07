@@ -9,7 +9,7 @@ struct GridUniforms {
     view_proj: [[f32; 4]; 4],
     viewport_size: [f32; 2],
     zoom: f32,
-    _pad: f32,
+    show_axes: f32,
     /// World-space grid spacing (major / minor)
     minor_spacing: f32,
     major_spacing: f32,
@@ -113,6 +113,7 @@ impl GridRenderer {
         queue: &wgpu::Queue,
         camera: &Camera2D,
         viewport_size: [f32; 2],
+        show_axes: bool,
     ) {
         let vp_w = viewport_size[0].max(1.0);
         let vp_h = viewport_size[1].max(1.0);
@@ -128,7 +129,7 @@ impl GridRenderer {
             view_proj: cols,
             viewport_size: [vp_w, vp_h],
             zoom: camera.zoom,
-            _pad: 0.0,
+            show_axes: if show_axes { 1.0 } else { 0.0 },
             minor_spacing,
             major_spacing,
             _pad2: [0.0; 2],

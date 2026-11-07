@@ -3,13 +3,13 @@ use crate::cam::operations::OperationKind;
 use crate::workspace::layer::{Layer, LayerKind};
 use eframe::egui;
 
-const HEADER_COLOR: egui::Color32 = egui::Color32::from_rgb(140, 160, 220);
-const SELECTED_BG: egui::Color32 = egui::Color32::from_rgba_premultiplied(80, 120, 200, 60);
+const HEADER_COLOR: egui::Color32 = egui::Color32::from_rgb(72, 75, 106);
+const SELECTED_BG: egui::Color32 = egui::Color32::from_rgb(210, 211, 219);
 const ACCENT: egui::Color32 = egui::Color32::from_rgb(80, 140, 255);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
-        egui::Color32::from_rgb(242, 244, 248)
+        egui::Color32::from_rgb(228, 229, 241)
     } else {
         egui::Color32::from_rgb(20, 20, 28)
     };
@@ -51,14 +51,14 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     let l = &app.project.layers[i];
                     let selected = app.ui_state.selected_layer == Some(i);
                     let kind_icon: &'static str = match l.kind {
-                        LayerKind::Gerber => "🟢",
-                        LayerKind::Drill => "⚫",
-                        LayerKind::Dxf => "🔵",
-                        LayerKind::Svg => "🟠",
-                        LayerKind::Gcode => "⚙",
-                        LayerKind::Placeholder => "📄",
+                        LayerKind::Gerber => "GER",
+                        LayerKind::Drill => "DRL",
+                        LayerKind::Dxf => "DXF",
+                        LayerKind::Svg => "SVG",
+                        LayerKind::Gcode => "NC",
+                        LayerKind::Placeholder => "NEW",
                     };
-                    let vis_icon: &'static str = if l.visible { "👁" } else { "🚫" };
+                    let vis_icon: &'static str = if l.visible { "ON" } else { "OFF" };
                     let label = format!("{kind_icon} {}", l.name);
                     (selected, vis_icon, label, l.visible)
                 })
@@ -66,6 +66,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
             let mut toggle_vis: Option<usize> = None;
             let mut select_layer: Option<usize> = None;
+            let mut delete_layer: Option<usize> = None;
 
             for (i, (is_selected, vis_icon, label, _vis)) in layer_display.iter().enumerate() {
                 let row_bg = if *is_selected {
@@ -88,9 +89,16 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     })
                     .response;
 
-                if response.interact(egui::Sense::click()).clicked() {
+                let response = response.interact(egui::Sense::click());
+                if response.clicked() {
                     select_layer = Some(i);
                 }
+                response.context_menu(|ui| {
+                    if ui.button("Delete layer").clicked() {
+                        delete_layer = Some(i);
+                        ui.close_menu();
+                    }
+                });
             }
 
             // Apply deferred mutations
@@ -100,6 +108,25 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             }
             if let Some(i) = select_layer {
                 app.ui_state.selected_layer = Some(i);
+            }
+            if let Some(i) = delete_layer {
+                let layer_id = app.project.layers[i].id;
+                app.project.layers.remove(i);
+                for operation in &mut app.project.operations {
+                    if operation.source_layer_id == Some(layer_id) {
+                        operation.source_layer_id = None;
+                    }
+                }
+                app.ui_state.selected_layer = match app.ui_state.selected_layer {
+                    Some(selected) if selected == i => {
+                        (!app.project.layers.is_empty())
+                            .then_some(i.min(app.project.layers.len().saturating_sub(1)))
+                    }
+                    Some(selected) if selected > i => Some(selected - 1),
+                    selected => selected,
+                };
+                app.ui_state.project_dirty = true;
+                app.scene_sig.clear();
             }
 
             if layer_count == 0 {
@@ -168,23 +195,24 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     let op = &app.project.operations[i];
                     let selected = app.ui_state.selected_operation == Some(i);
                     let icon: &'static str = match op.kind {
-                        OperationKind::Isolation => "〰",
-                        OperationKind::Pocket => "⬡",
-                        OperationKind::Drill => "⊙",
-                        OperationKind::Contour => "▭",
-                        OperationKind::ModelProfile2D => "⌑",
-                        OperationKind::Roughing3D => "▦",
-                        OperationKind::FinishRaster3D => "〰",
-                        OperationKind::FinishContour3D => "◎",
-                        OperationKind::FinishWaterline3D => "≋",
-                        OperationKind::Placeholder => "📋",
-                        OperationKind::Custom(_) => "⚙",
+                        OperationKind::Isolation => "ISO",
+                        OperationKind::Pocket => "POC",
+                        OperationKind::Drill => "DRL",
+                        OperationKind::Contour => "CON",
+                        OperationKind::ModelProfile2D => "2D",
+                        OperationKind::Roughing3D => "R3D",
+                        OperationKind::FinishRaster3D => "FR3",
+                        OperationKind::FinishContour3D => "FC3",
+                        OperationKind::FinishWaterline3D => "FW3",
+                        OperationKind::Placeholder => "NEW",
+                        OperationKind::Custom(_) => "USR",
                     };
                     (selected, icon, op.name.clone(), op.generated)
                 })
                 .collect();
 
             let mut select_op: Option<usize> = None;
+            let mut delete_op: Option<usize> = None;
 
             for (i, (is_selected, icon, name, generated)) in op_display.iter().enumerate() {
                 let row_bg = if *is_selected {
@@ -220,23 +248,40 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     })
                     .response;
 
-                if response.interact(egui::Sense::click()).clicked() {
+                let response = response.interact(egui::Sense::click());
+                if response.clicked() {
                     select_op = Some(i);
                 }
+                response.context_menu(|ui| {
+                    if ui.button("Delete operation").clicked() {
+                        delete_op = Some(i);
+                        ui.close_menu();
+                    }
+                });
             }
 
             if let Some(i) = select_op {
                 app.ui_state.selected_operation = Some(i);
             }
+            if let Some(i) = delete_op {
+                app.project.operations.remove(i);
+                app.ui_state.selected_operation = if app.project.operations.is_empty() {
+                    None
+                } else {
+                    Some(i.min(app.project.operations.len() - 1))
+                };
+                app.ui_state.project_dirty = true;
+                app.scene_sig.clear();
+            }
 
             if let Some(index) = app
                 .ui_state
                 .selected_operation
-                .filter(|index| *index < op_count)
+                .filter(|index| *index < app.project.operations.len())
             {
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(index > 0, egui::Button::new("↑ Move up"))
+                        .add_enabled(index > 0, egui::Button::new("Move up"))
                         .clicked()
                     {
                         app.project.operations.swap(index, index - 1);
@@ -245,7 +290,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         app.scene_sig.clear();
                     }
                     if ui
-                        .add_enabled(index + 1 < op_count, egui::Button::new("↓ Move down"))
+                        .add_enabled(index + 1 < op_count, egui::Button::new("Move down"))
                         .clicked()
                     {
                         app.project.operations.swap(index, index + 1);

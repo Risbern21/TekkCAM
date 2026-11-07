@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let viewport_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
-        egui::Color32::from_rgb(250, 251, 253)
+        egui::Color32::from_rgb(250, 250, 250)
     } else {
         egui::Color32::from_rgb(10, 10, 15)
     };
@@ -29,6 +29,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
             // Overlay coordinate display (top-left of viewport)
             overlay_info(ui, app, rect);
+            show_zoom_controls(ctx, app, rect);
             operation_status_overlay(ui, app, rect);
             if let Some(position) = crate::ui::console::simulation_position(app) {
                 let world_xy = [
@@ -105,6 +106,25 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             );
             ui.painter().add(callback);
         });
+}
+
+fn show_zoom_controls(ctx: &egui::Context, app: &mut TekkCamApp, rect: egui::Rect) {
+    let mut zoom_by = 1.0;
+    egui::Area::new("viewport_zoom_controls".into())
+        .fixed_pos(egui::pos2(rect.left() + 8.0, rect.top() + 30.0))
+        .show(ctx, |ui| {
+            ui.vertical(|ui| {
+                if ui.add_sized([30.0, 28.0], egui::Button::new(egui::RichText::new("+").size(18.0))).on_hover_text("Zoom in").clicked() {
+                    zoom_by = 1.2;
+                }
+                if ui.add_sized([30.0, 28.0], egui::Button::new(egui::RichText::new("−").size(18.0))).on_hover_text("Zoom out").clicked() {
+                    zoom_by = 1.0 / 1.2;
+                }
+            });
+        });
+    if zoom_by != 1.0 {
+        app.camera.zoom_at(rect.center(), zoom_by, rect);
+    }
 }
 
 fn operation_status_overlay(ui: &egui::Ui, app: &TekkCamApp, rect: egui::Rect) {
