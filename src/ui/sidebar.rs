@@ -139,27 +139,72 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             if !app.project.models.is_empty() {
                 ui.add_space(8.0);
                 section_header(ui, "3D MODELS");
-                let mut changed_model = false;
-                for (index, model) in app.project.models.iter_mut().enumerate() {
-                    let label = format!(
-                        "{} · {} bodies · {}",
-                        model.name,
-                        model.bodies.len(),
-                        model.source_unit.label()
-                    );
-                    ui.horizontal(|ui| {
-                        changed_model |= ui.checkbox(&mut model.visible, "").changed();
-                        if ui
-                            .selectable_label(app.ui_state.selected_model == Some(index), label)
-                            .clicked()
-                        {
-                            app.ui_state.selected_model = Some(index);
-                            app.ui_state.request_fit = true;
+                let model_display: Vec<(bool, bool, String)> = app
+                    .project
+                    .models
+                    .iter()
+                    .enumerate()
+                    .map(|(index, model)| {
+                        (
+                            app.ui_state.selected_model == Some(index),
+                            model.visible,
+                            format!(
+                                "{} · {} bodies · {}",
+                                model.name,
+                                model.bodies.len(),
+                                model.source_unit.label()
+                            ),
+                        )
+                    })
+                    .collect();
+                let mut changed_model_visibility = None;
+                let mut select_model = None;
+                let mut delete_model = None;
+                for (index, (selected, visible, label)) in model_display.iter().enumerate() {
+                    let response = ui
+                        .horizontal(|ui| {
+                            let mut visible = *visible;
+                            if ui.checkbox(&mut visible, "").changed() {
+                                changed_model_visibility = Some((index, visible));
+                            }
+                            if ui.selectable_label(*selected, label).clicked() {
+                                select_model = Some(index);
+                            }
+                        })
+                        .response;
+                    response.context_menu(|ui| {
+                        if ui.button("Delete model").clicked() {
+                            delete_model = Some(index);
+                            ui.close_menu();
                         }
                     });
                 }
-                if changed_model {
+                if let Some((index, visible)) = changed_model_visibility {
+                    app.project.models[index].visible = visible;
                     app.ui_state.project_dirty = true;
+                }
+                if let Some(index) = select_model {
+                    app.ui_state.selected_model = Some(index);
+                    app.ui_state.request_fit = true;
+                }
+                let keyboard_is_focused = ctx.wants_keyboard_input();
+                let delete_key_pressed =
+                    ctx.input(|input| input.key_pressed(egui::Key::Delete) && !keyboard_is_focused);
+                if delete_model.is_none() && delete_key_pressed {
+                    delete_model = app.ui_state.selected_model;
+                }
+                if let Some(index) = delete_model.filter(|index| *index < app.project.models.len())
+                {
+                    app.project.models.remove(index);
+                    app.ui_state.selected_model = match app.ui_state.selected_model {
+                        Some(selected) if selected == index => (!app.project.models.is_empty())
+                            .then_some(index.min(app.project.models.len().saturating_sub(1))),
+                        Some(selected) if selected > index => Some(selected - 1),
+                        selected => selected,
+                    };
+                    app.ui_state.project_dirty = true;
+                    app.ui_state.request_fit = true;
+                    app.scene_sig.clear();
                 }
             }
 
