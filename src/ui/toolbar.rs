@@ -17,7 +17,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     } else {
         egui::Color32::from_rgb(14, 14, 20)
     };
-    egui::TopBottomPanel::top("toolbar")
+    egui::TopBottomPanel::top("menu_bar")
         .exact_height(42.0)
         .frame(
             egui::Frame::new()
@@ -323,6 +323,73 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                             .color(egui::Color32::from_rgb(140, 140, 160)),
                     );
                 });
+            });
+        });
+
+    egui::TopBottomPanel::top("tool_creation_toolbar")
+        .exact_height(36.0)
+        .frame(
+            egui::Frame::new()
+                .fill(panel_bg)
+                .inner_margin(egui::Margin::symmetric(12, 4)),
+        )
+        .show(ctx, |ui| {
+            ui.horizontal_centered(|ui| {
+                let (rect, response) =
+                    ui.allocate_exact_size(egui::vec2(30.0, 26.0), egui::Sense::click());
+                if response.hovered() || response.is_pointer_button_down_on() {
+                    ui.painter()
+                        .rect_filled(rect, 4.0, ui.visuals().widgets.hovered.bg_fill);
+                }
+                let center = rect.center();
+                let stroke = egui::Stroke::new(1.8_f32, ui.visuals().text_color());
+                ui.painter().rect_stroke(
+                    egui::Rect::from_min_max(
+                        egui::pos2(center.x - 3.5, center.y - 7.0),
+                        egui::pos2(center.x + 3.5, center.y + 1.0),
+                    ),
+                    1.0,
+                    stroke,
+                    egui::StrokeKind::Inside,
+                );
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(center.x - 3.5, center.y + 1.0),
+                        egui::pos2(center.x, center.y + 7.0),
+                    ],
+                    stroke,
+                );
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(center.x + 3.5, center.y + 1.0),
+                        egui::pos2(center.x, center.y + 7.0),
+                    ],
+                    stroke,
+                );
+                let badge = egui::pos2(rect.right() - 6.0, rect.top() + 6.0);
+                ui.painter().circle_filled(badge, 5.0, panel_bg);
+                ui.painter()
+                    .circle_stroke(badge, 4.5, egui::Stroke::new(1.2_f32, ACCENT));
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(badge.x - 2.0, badge.y),
+                        egui::pos2(badge.x + 2.0, badge.y),
+                    ],
+                    egui::Stroke::new(1.2_f32, ACCENT),
+                );
+                ui.painter().line_segment(
+                    [
+                        egui::pos2(badge.x, badge.y - 2.0),
+                        egui::pos2(badge.x, badge.y + 2.0),
+                    ],
+                    egui::Stroke::new(1.2_f32, ACCENT),
+                );
+                if response.clicked() {
+                    app.ui_state.tool_editor = Some(crate::cam::tool::Tool::default());
+                    app.ui_state.tool_editor_index = None;
+                    app.ui_state.tool_editor_error = None;
+                }
+                response.on_hover_text("Create new tool");
             });
         });
 }

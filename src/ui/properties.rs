@@ -442,10 +442,6 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     app.project.tools.push(op.tool.clone());
                                     project_changed = true;
                                 }
-                                if ui.button("＋ New tool").clicked() {
-                                    app.project.tools.push(crate::cam::tool::Tool::default());
-                                    project_changed = true;
-                                }
                             });
                             let mut use_tool = None;
                             let mut delete_tool = None;
@@ -453,6 +449,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                 ui.horizontal(|ui| {
                                     if ui.small_button("Use").clicked() {
                                         use_tool = Some(tool_i);
+                                    }
+                                    if ui.small_button("Edit").clicked() {
+                                        app.ui_state.tool_editor = Some(tool.clone());
+                                        app.ui_state.tool_editor_index = Some(tool_i);
+                                        app.ui_state.tool_editor_error = None;
                                     }
                                     let diameter = tool.diameter_mm / units.factor();
                                     ui.label(format!(
@@ -741,6 +742,102 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
         app.ui_state.project_dirty = true;
         app.scene_sig.clear();
     }
+    show_tool_editor(ctx, app);
+}
+
+fn show_tool_editor(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let Some(mut tool) = app.ui_state.tool_editor.take() else {
+        return;
+    };
+    let mut open = true;
+    let mut save = false;
+    let mut cancel = false;
+    egui::Window::new(if app.ui_state.tool_editor_index.is_some() {
+        "Edit cutting tool"
+    } else {
+        "Create cutting tool"
+    })
+    .id(egui::Id::new("tool_editor"))
+    .collapsible(false)
+    .resizable(false)
+    .open(&mut open)
+    .show(ctx, |ui| {
+        ui.set_min_width(340.0);
+        egui::Grid::new("tool_editor_fields")
+            .num_columns(2)
+            .spacing([12.0, 8.0])
+            .show(ui, |ui| {
+                ui.label("Name");
+                ui.text_edit_singleline(&mut tool.name);
+                ui.end_row();
+                ui.label("Shape");
+                egui::ComboBox::from_id_salt("tool_editor_shape")
+                    .selected_text(format!("{:?}", tool.shape))
+                    .show_ui(ui, |ui| {
+                        for shape in [
+                            crate::cam::tool::ToolShape::Flat,
+                            crate::cam::tool::ToolShape::BallNose,
+                            crate::cam::tool::ToolShape::BullNose,
+                        ] {
+                            ui.selectable_value(&mut tool.shape, shape, format!("{:?}", shape));
+                        }
+                    });
+                ui.end_row();
+                for (label, value) in [
+                    ("Diameter (mm)", &mut tool.diameter_mm),
+                    ("Flute length (mm)", &mut tool.flute_length_mm),
+                    ("Stickout (mm)", &mut tool.stickout_mm),
+                    ("Corner radius (mm)", &mut tool.corner_radius_mm),
+                    ("Holder clearance (mm)", &mut tool.holder_clearance_mm),
+                    ("Feed rate (mm/min)", &mut tool.feed_rate_mm_min),
+                    ("Plunge rate (mm/min)", &mut tool.plunge_rate_mm_min),
+                    ("Spindle speed (RPM)", &mut tool.spindle_rpm),
+                ] {
+                    ui.label(label);
+                    ui.add(egui::DragValue::new(value).speed(0.1).min_decimals(1));
+                    ui.end_row();
+                }
+            });
+        if let Some(error) = &app.ui_state.tool_editor_error {
+            ui.add_space(6.0);
+            ui.colored_label(egui::Color32::LIGHT_RED, error);
+        }
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            save = ui.button("Save to tool database").clicked();
+            cancel = ui.button("Cancel").clicked();
+        });
+    });
+
+    if cancel || !open {
+        app.ui_state.tool_editor_index = None;
+        app.ui_state.tool_editor_error = None;
+        return;
+    }
+    if save {
+        let result = if tool.name.trim().is_empty() {
+            Err("Tool name cannot be empty".to_owned())
+        } else {
+            tool.validate()
+        };
+        match result {
+            Ok(()) => {
+                if let Some(index) = app.ui_state.tool_editor_index {
+                    if let Some(existing) = app.project.tools.get_mut(index) {
+                        *existing = tool;
+                    }
+                } else {
+                    app.project.tools.push(tool);
+                }
+                app.ui_state.project_dirty = true;
+                app.ui_state.tool_editor_index = None;
+                app.ui_state.tool_editor_error = None;
+                return;
+            }
+            Err(error) => app.ui_state.tool_editor_error = Some(error),
+        }
+    }
+    app.ui_state.tool_editor = Some(tool);
 }
 
 fn section_header(ui: &mut egui::Ui, title: &str) {
