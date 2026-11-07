@@ -434,48 +434,6 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                 );
                             }
 
-                            ui.add_space(8.0);
-                            section_header(ui, "TOOL DATABASE");
-                            ui.add_space(4.0);
-                            ui.horizontal(|ui| {
-                                if ui.button("＋ Save current").clicked() {
-                                    app.project.tools.push(op.tool.clone());
-                                    project_changed = true;
-                                }
-                            });
-                            let mut use_tool = None;
-                            let mut delete_tool = None;
-                            for (tool_i, tool) in app.project.tools.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    if ui.small_button("Use").clicked() {
-                                        use_tool = Some(tool_i);
-                                    }
-                                    if ui.small_button("Edit").clicked() {
-                                        app.ui_state.tool_editor = Some(tool.clone());
-                                        app.ui_state.tool_editor_index = Some(tool_i);
-                                        app.ui_state.tool_editor_error = None;
-                                    }
-                                    let diameter = tool.diameter_mm / units.factor();
-                                    ui.label(format!(
-                                        "{} ({:.2} {})",
-                                        tool.name,
-                                        diameter,
-                                        units.label()
-                                    ));
-                                    if ui.small_button("×").clicked() {
-                                        delete_tool = Some(tool_i);
-                                    }
-                                });
-                            }
-                            if let Some(tool_i) = use_tool {
-                                op.tool = app.project.tools[tool_i].clone();
-                                project_changed = true;
-                            }
-                            if let Some(tool_i) = delete_tool {
-                                app.project.tools.remove(tool_i);
-                                project_changed = true;
-                            }
-
                             ui.add_space(12.0);
 
                             // Generate button
@@ -511,6 +469,60 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                 crate::ui::console::export_gcode(ctx, app);
                             }
                         }
+                    }
+
+                    // ── Tool database ────────────────────────────────────────────
+                    let units = app.ui_state.display_units;
+                    let selected_operation = app
+                        .ui_state
+                        .selected_operation
+                        .filter(|index| *index < app.project.operations.len());
+                    ui.add_space(8.0);
+                    section_header(ui, "TOOL DATABASE");
+                    ui.add_space(4.0);
+                    if let Some(index) = selected_operation {
+                        if ui.button("＋ Save current").clicked() {
+                            app.project
+                                .tools
+                                .push(app.project.operations[index].tool.clone());
+                            project_changed = true;
+                        }
+                    } else {
+                        ui.label(
+                            egui::RichText::new("Select an operation to save or use its tool.")
+                                .size(11.0)
+                                .color(MUTED),
+                        );
+                    }
+                    let mut use_tool = None;
+                    let mut delete_tool = None;
+                    for (tool_i, tool) in app.project.tools.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.add_enabled_ui(selected_operation.is_some(), |ui| {
+                                if ui.small_button("Use").clicked() {
+                                    use_tool = Some(tool_i);
+                                }
+                            });
+                            if ui.small_button("Edit").clicked() {
+                                app.ui_state.tool_editor = Some(tool.clone());
+                                app.ui_state.tool_editor_index = Some(tool_i);
+                                app.ui_state.tool_editor_error = None;
+                            }
+                            let diameter = tool.diameter_mm / units.factor();
+                            ui.label(format!("{} ({:.2} {})", tool.name, diameter, units.label()));
+                            if ui.small_button("×").clicked() {
+                                delete_tool = Some(tool_i);
+                            }
+                        });
+                    }
+                    if let (Some(operation_i), Some(tool_i)) = (selected_operation, use_tool) {
+                        app.project.operations[operation_i].tool =
+                            app.project.tools[tool_i].clone();
+                        project_changed = true;
+                    }
+                    if let Some(tool_i) = delete_tool {
+                        app.project.tools.remove(tool_i);
+                        project_changed = true;
                     }
 
                     // ── Empty state ───────────────────────────────────────────────
