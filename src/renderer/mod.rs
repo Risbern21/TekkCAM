@@ -59,17 +59,15 @@ impl egui_wgpu::CallbackTrait for ViewportCallback {
         if let Some(renderer) = resources.get_mut::<ViewportRenderer>() {
             renderer.camera = self.camera.clone();
             renderer.show_grid = self.show_grid;
-            renderer
-                .grid
-                .update_uniforms(
-                    device,
-                    queue,
-                    &renderer.camera,
-                    self.viewport_size,
-                    !(self.scene.triangles.is_empty()
-                        && self.scene.lines.is_empty()
-                        && self.scene.toolpaths.is_empty()),
-                );
+            renderer.grid.update_uniforms(
+                device,
+                queue,
+                &renderer.camera,
+                self.viewport_size,
+                !(self.scene.triangles.is_empty()
+                    && self.scene.lines.is_empty()
+                    && self.scene.toolpaths.is_empty()),
+            );
             let vp = renderer.camera.view_proj_matrix((
                 self.viewport_size[0].max(1.0),
                 self.viewport_size[1].max(1.0),

@@ -342,9 +342,10 @@ impl TekkCamApp {
                 "../assets/sidebar-icons.ttf"
             ))),
         );
-        fonts
-            .families
-            .insert(egui::FontFamily::Name("sidebar_icons".into()), vec!["sidebar_icons".into()]);
+        fonts.families.insert(
+            egui::FontFamily::Name("sidebar_icons".into()),
+            vec!["sidebar_icons".into()],
+        );
         cc.egui_ctx.set_fonts(fonts);
 
         let preferences = AppPreferences::load();

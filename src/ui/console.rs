@@ -151,7 +151,8 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         |ui, visible_rows| {
                             for row in visible_rows {
                                 let line = &app.ui_state.console_log[row];
-                                let color = if line.starts_with("✖") || line.starts_with("Error") {
+                                let color = if line.starts_with("✖") || line.starts_with("Error")
+                                {
                                     DANGER
                                 } else if line.starts_with("✔") || line.contains("ready") {
                                     SUCCESS

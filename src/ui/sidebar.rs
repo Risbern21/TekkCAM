@@ -118,10 +118,8 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     }
                 }
                 app.ui_state.selected_layer = match app.ui_state.selected_layer {
-                    Some(selected) if selected == i => {
-                        (!app.project.layers.is_empty())
-                            .then_some(i.min(app.project.layers.len().saturating_sub(1)))
-                    }
+                    Some(selected) if selected == i => (!app.project.layers.is_empty())
+                        .then_some(i.min(app.project.layers.len().saturating_sub(1))),
                     Some(selected) if selected > i => Some(selected - 1),
                     selected => selected,
                 };

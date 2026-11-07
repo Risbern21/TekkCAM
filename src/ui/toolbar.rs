@@ -247,7 +247,10 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
-                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
+                                .font(egui::FontId::new(
+                                    18.0,
+                                    egui::FontFamily::Name("sidebar_icons".into()),
+                                ))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)
@@ -271,7 +274,10 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
-                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
+                                .font(egui::FontId::new(
+                                    18.0,
+                                    egui::FontFamily::Name("sidebar_icons".into()),
+                                ))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)
@@ -295,7 +301,10 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     .to_string(),
                                 )
                                 .size(18.0)
-                                .font(egui::FontId::new(18.0, egui::FontFamily::Name("sidebar_icons".into())))
+                                .font(egui::FontId::new(
+                                    18.0,
+                                    egui::FontFamily::Name("sidebar_icons".into()),
+                                ))
                                 .color(ui.visuals().text_color()),
                             )
                             .fill(egui::Color32::TRANSPARENT)

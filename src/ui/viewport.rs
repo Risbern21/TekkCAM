@@ -114,10 +114,24 @@ fn show_zoom_controls(ctx: &egui::Context, app: &mut TekkCamApp, rect: egui::Rec
         .fixed_pos(egui::pos2(rect.left() + 8.0, rect.top() + 30.0))
         .show(ctx, |ui| {
             ui.vertical(|ui| {
-                if ui.add_sized([30.0, 28.0], egui::Button::new(egui::RichText::new("+").size(18.0))).on_hover_text("Zoom in").clicked() {
+                if ui
+                    .add_sized(
+                        [30.0, 28.0],
+                        egui::Button::new(egui::RichText::new("+").size(18.0)),
+                    )
+                    .on_hover_text("Zoom in")
+                    .clicked()
+                {
                     zoom_by = 1.2;
                 }
-                if ui.add_sized([30.0, 28.0], egui::Button::new(egui::RichText::new("−").size(18.0))).on_hover_text("Zoom out").clicked() {
+                if ui
+                    .add_sized(
+                        [30.0, 28.0],
+                        egui::Button::new(egui::RichText::new("−").size(18.0)),
+                    )
+                    .on_hover_text("Zoom out")
+                    .clicked()
+                {
                     zoom_by = 1.0 / 1.2;
                 }
             });

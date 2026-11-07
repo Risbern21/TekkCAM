@@ -132,7 +132,9 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                     ));
                                     ui.add_space(4.0);
                                     let all_selected = !face_ids.is_empty()
-                                        && face_ids.iter().all(|id| op.source_face_ids.contains(id));
+                                        && face_ids
+                                            .iter()
+                                            .all(|id| op.source_face_ids.contains(id));
                                     ui.horizontal(|ui| {
                                         if ui
                                             .add_enabled(
@@ -780,11 +782,7 @@ fn prop_row(ui: &mut egui::Ui, label: &str, add_content: impl FnOnce(&mut egui::
         egui::Color32::from_rgb(72, 75, 106)
     };
     ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(label)
-                .size(12.0)
-                .color(label_color),
-        );
+        ui.label(egui::RichText::new(label).size(12.0).color(label_color));
         ui.with_layout(
             egui::Layout::right_to_left(egui::Align::Center),
             add_content,
