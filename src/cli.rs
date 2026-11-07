@@ -86,7 +86,7 @@ Usage:\n\
   tekkcam operations reorder --project FILE --order 2,0,1 [--json]\n\
   tekkcam generate --project FILE [--output FILE] [--json]\n\
   tekkcam help | version\n\n\
-Import accepts Gerber, Excellon, DXF, SVG, and STEP files. Configure project setup, tools, and operations by editing the versioned .tekkCAM JSON project; operation reordering writes the project back. Generate validates setup, creates configured 2D/3D toolpaths, validates machine limits when configured, then writes G-code. It never connects to a machine. JSON output is an object with schema_version: 1, command, and result.", env!("CARGO_PKG_VERSION"));
+Import accepts Gerber, Excellon, DXF, SVG, and STEP files. Configure project setup, tools, and operations by editing the versioned .tkc JSON project; operation reordering writes the project back. Existing .tekkCAM and .json project files remain supported. Generate validates setup, creates configured 2D/3D toolpaths, validates machine limits when configured, then writes G-code. It never connects to a machine. JSON output is an object with schema_version: 1, command, and result.", env!("CARGO_PKG_VERSION"));
 }
 
 fn import_command(args: &[String], json_output: bool) -> CliResult<()> {
