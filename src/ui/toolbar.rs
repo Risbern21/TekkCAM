@@ -235,85 +235,87 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
                     ui.add_space(8.0);
 
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(
-                                    if app.ui_state.show_right_sidebar {
-                                        ICON_LAYOUT_SIDEBAR_RIGHT
-                                    } else {
-                                        ICON_LAYOUT_SIDEBAR_RIGHT_OFF
-                                    }
-                                    .to_string(),
+                    if app.has_active_project() {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(
+                                        if app.ui_state.show_right_sidebar {
+                                            ICON_LAYOUT_SIDEBAR_RIGHT
+                                        } else {
+                                            ICON_LAYOUT_SIDEBAR_RIGHT_OFF
+                                        }
+                                        .to_string(),
+                                    )
+                                    .size(18.0)
+                                    .font(egui::FontId::new(
+                                        18.0,
+                                        egui::FontFamily::Name("sidebar_icons".into()),
+                                    ))
+                                    .color(ui.visuals().text_color()),
                                 )
-                                .size(18.0)
-                                .font(egui::FontId::new(
-                                    18.0,
-                                    egui::FontFamily::Name("sidebar_icons".into()),
-                                ))
-                                .color(ui.visuals().text_color()),
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
                             )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                        )
-                        .on_hover_text("Toggle properties and setup panel")
-                        .clicked()
-                    {
-                        app.ui_state.show_right_sidebar = !app.ui_state.show_right_sidebar;
-                    }
+                            .on_hover_text("Toggle properties and setup panel")
+                            .clicked()
+                        {
+                            app.ui_state.show_right_sidebar = !app.ui_state.show_right_sidebar;
+                        }
 
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(
-                                    if app.ui_state.show_console {
-                                        ICON_LAYOUT_PANEL
-                                    } else {
-                                        ICON_LAYOUT_PANEL_OFF
-                                    }
-                                    .to_string(),
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(
+                                        if app.ui_state.show_console {
+                                            ICON_LAYOUT_PANEL
+                                        } else {
+                                            ICON_LAYOUT_PANEL_OFF
+                                        }
+                                        .to_string(),
+                                    )
+                                    .size(18.0)
+                                    .font(egui::FontId::new(
+                                        18.0,
+                                        egui::FontFamily::Name("sidebar_icons".into()),
+                                    ))
+                                    .color(ui.visuals().text_color()),
                                 )
-                                .size(18.0)
-                                .font(egui::FontId::new(
-                                    18.0,
-                                    egui::FontFamily::Name("sidebar_icons".into()),
-                                ))
-                                .color(ui.visuals().text_color()),
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
                             )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                        )
-                        .on_hover_text("Toggle editor and console panel")
-                        .clicked()
-                    {
-                        app.ui_state.show_console = !app.ui_state.show_console;
-                    }
+                            .on_hover_text("Toggle editor and console panel")
+                            .clicked()
+                        {
+                            app.ui_state.show_console = !app.ui_state.show_console;
+                        }
 
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new(
-                                    if app.ui_state.show_left_sidebar {
-                                        ICON_LAYOUT_SIDEBAR_LEFT
-                                    } else {
-                                        ICON_LAYOUT_SIDEBAR_LEFT_OFF
-                                    }
-                                    .to_string(),
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new(
+                                        if app.ui_state.show_left_sidebar {
+                                            ICON_LAYOUT_SIDEBAR_LEFT
+                                        } else {
+                                            ICON_LAYOUT_SIDEBAR_LEFT_OFF
+                                        }
+                                        .to_string(),
+                                    )
+                                    .size(18.0)
+                                    .font(egui::FontId::new(
+                                        18.0,
+                                        egui::FontFamily::Name("sidebar_icons".into()),
+                                    ))
+                                    .color(ui.visuals().text_color()),
                                 )
-                                .size(18.0)
-                                .font(egui::FontId::new(
-                                    18.0,
-                                    egui::FontFamily::Name("sidebar_icons".into()),
-                                ))
-                                .color(ui.visuals().text_color()),
+                                .fill(egui::Color32::TRANSPARENT)
+                                .stroke(egui::Stroke::NONE),
                             )
-                            .fill(egui::Color32::TRANSPARENT)
-                            .stroke(egui::Stroke::NONE),
-                        )
-                        .on_hover_text("Toggle layers and operations panel")
-                        .clicked()
-                    {
-                        app.ui_state.show_left_sidebar = !app.ui_state.show_left_sidebar;
+                            .on_hover_text("Toggle layers and operations panel")
+                            .clicked()
+                        {
+                            app.ui_state.show_left_sidebar = !app.ui_state.show_left_sidebar;
+                        }
                     }
 
                     ui.add_space(8.0);
@@ -390,6 +392,50 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     app.ui_state.tool_editor_error = None;
                 }
                 response.on_hover_text("Create new tool");
+                if ui.button("Tool Database").clicked() {
+                    app.ui_state.show_tool_database = true;
+                }
+                ui.separator();
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("▶ Simulate").color(egui::Color32::WHITE),
+                        )
+                        .fill(egui::Color32::from_rgb(40, 140, 60)),
+                    )
+                    .clicked()
+                {
+                    app.ui_state.simulator.stop();
+                    if app.ui_state.gcode_text.trim().is_empty() {
+                        app.generate_gcode();
+                    }
+                    match crate::gcode::parser::parse(&app.ui_state.gcode_text) {
+                        Ok(moves) => {
+                            app.ui_state.simulation_moves = moves;
+                            app.ui_state.simulator.reset();
+                            app.ui_state.status_message = "Simulating G-code".into();
+                            ctx.request_repaint();
+                        }
+                        Err(error) => {
+                            app.ui_state.status_message = "Simulation failed".into();
+                            app.ui_state
+                                .console_log
+                                .push(format!("✖ Simulation failed: {error}"));
+                        }
+                    }
+                }
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("⏹ Stop").color(egui::Color32::WHITE),
+                        )
+                        .fill(DANGER),
+                    )
+                    .clicked()
+                {
+                    app.ui_state.simulator.stop();
+                    app.ui_state.status_message = "Simulation stopped".into();
+                }
             });
         });
 }

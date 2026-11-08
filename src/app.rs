@@ -160,6 +160,23 @@ impl AppPreferences {
     }
 }
 
+fn tool_database_path() -> Option<PathBuf> {
+    if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
+        Some(PathBuf::from(data).join("tekkcam/tools.json"))
+    } else {
+        std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .map(|home| home.join(".local/share/tekkcam/tools.json"))
+    }
+}
+
+fn load_tool_database() -> Vec<crate::cam::tool::Tool> {
+    tool_database_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
 #[derive(Default)]
 struct ProjectHistory {
     undo: Vec<String>,
@@ -227,6 +244,7 @@ pub struct UiState {
     pub tool_editor: Option<crate::cam::tool::Tool>,
     pub tool_editor_index: Option<usize>,
     pub tool_editor_error: Option<String>,
+    pub show_tool_database: bool,
     pub show_settings: bool,
     pub console_input: String,
     pub console_log: Vec<String>,
@@ -297,6 +315,7 @@ impl Default for UiState {
             tool_editor: None,
             tool_editor_index: None,
             tool_editor_error: None,
+            show_tool_database: false,
             show_settings: false,
             console_input: String::new(),
             console_log: vec![
@@ -394,6 +413,8 @@ impl TekkCamApp {
             generation_rx,
             generation_pending: false,
         };
+        app.project.tools = load_tool_database();
+        app.project_history.reset(&app.project);
         app.ui_state.display_units = app.preferences.display_units;
         app.ui_state.theme = app.preferences.theme;
         app.ui_state.selected_machine_port = app.preferences.selected_machine_port.clone();
@@ -411,6 +432,32 @@ impl TekkCamApp {
                 .console_log
                 .push(format!("✖ Settings save failed: {error}"));
         }
+    }
+
+    pub fn save_tool_database(&mut self) {
+        let Some(path) = tool_database_path() else {
+            return;
+        };
+        let result = (|| {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let contents =
+                serde_json::to_vec_pretty(&self.project.tools).map_err(std::io::Error::other)?;
+            std::fs::write(path, contents)
+        })();
+        if let Err(error) = result {
+            self.ui_state
+                .console_log
+                .push(format!("✖ Tool database save failed: {error}"));
+        }
+    }
+
+    pub fn has_active_project(&self) -> bool {
+        self.project_path.is_some()
+            || !self.project.layers.is_empty()
+            || !self.project.models.is_empty()
+            || !self.project.operations.is_empty()
     }
 
     pub fn add_operation(&mut self, mut operation: crate::cam::operations::Operation) {
@@ -1001,10 +1048,22 @@ impl TekkCamApp {
             });
         match result {
             Ok(mut project) => {
+                let mut tools = load_tool_database();
+                for project_tool in project.tools.drain(..) {
+                    if let Some(existing) =
+                        tools.iter_mut().find(|tool| tool.name == project_tool.name)
+                    {
+                        *existing = project_tool;
+                    } else {
+                        tools.push(project_tool);
+                    }
+                }
+                project.tools = tools;
                 for layer in &mut project.layers {
                     layer.assign_fresh_id();
                 }
                 self.project = project;
+                self.save_tool_database();
                 self.project_history.reset(&self.project);
                 self.ui_state.project_dirty = false;
                 self.project_path = Some(path.clone());
@@ -1199,21 +1258,24 @@ impl eframe::App for TekkCamApp {
         toolbar::show(ctx, self);
 
         // ── Bottom console panel ─────────────────────────────────────────────
-        if self.ui_state.show_console {
+        let has_active_project = self.has_active_project();
+        if self.ui_state.show_console && has_active_project {
             console::show(ctx, self);
         }
 
         crate::ui::machine::show(ctx, self);
 
         // ── Left sidebar ─────────────────────────────────────────────────────
-        if self.ui_state.show_left_sidebar {
+        if self.ui_state.show_left_sidebar && has_active_project {
             sidebar::show(ctx, self);
         }
 
         // ── Right properties panel ───────────────────────────────────────────
-        if self.ui_state.show_right_sidebar {
+        if self.ui_state.show_right_sidebar && has_active_project {
             properties::show(ctx, self);
         }
+        properties::show_tool_editor(ctx, self);
+        properties::show_tool_database_dialog(ctx, self);
 
         // ── Central viewport ─────────────────────────────────────────────────
         viewport::show(ctx, self);

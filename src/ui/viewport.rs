@@ -295,6 +295,12 @@ fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
 fn handle_camera_input(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) -> bool {
     let response = ui.allocate_rect(rect, egui::Sense::click_and_drag());
 
+    if response.double_clicked() {
+        if let Some(pointer_pos) = response.interact_pointer_pos() {
+            app.camera.zoom_at(pointer_pos, 2.0, rect);
+        }
+    }
+
     // Pan (middle-mouse drag OR left drag with no selection intent)
     if response.dragged_by(egui::PointerButton::Middle)
         || response.dragged_by(egui::PointerButton::Primary)
@@ -373,9 +379,9 @@ fn overlay_info(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
 
     // Hint text (bottom-right)
     let hint = if app.ui_state.show_3d_view {
-        "Scroll: zoom  |  Drag: pan  |  Right drag: orbit"
+        "Scroll: zoom  |  Double-click: zoom in  |  Drag: pan  |  Right drag: orbit"
     } else {
-        "Scroll: zoom  |  Drag: pan"
+        "Scroll: zoom  |  Double-click: zoom in  |  Drag: pan"
     };
     let hint_pos = egui::pos2(rect.right() - 8.0, rect.bottom() - 8.0);
     painter.text(

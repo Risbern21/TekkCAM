@@ -73,46 +73,6 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     app.ui_state.show_gcode_editor = !app.ui_state.show_gcode_editor;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("⏹ Stop").color(egui::Color32::WHITE),
-                            )
-                            .fill(DANGER),
-                        )
-                        .clicked()
-                    {
-                        app.ui_state.simulator.stop();
-                        app.ui_state.status_message = "Simulation stopped".into();
-                    }
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                egui::RichText::new("▶ Simulate").color(egui::Color32::WHITE),
-                            )
-                            .fill(egui::Color32::from_rgb(40, 140, 60)),
-                        )
-                        .clicked()
-                    {
-                        app.ui_state.simulator.stop();
-                        if app.ui_state.gcode_text.trim().is_empty() {
-                            app.generate_gcode();
-                        }
-                        match crate::gcode::parser::parse(&app.ui_state.gcode_text) {
-                            Ok(moves) => {
-                                app.ui_state.simulation_moves = moves;
-                                app.ui_state.simulator.reset();
-                                app.ui_state.status_message = "Simulating G-code".into();
-                                ctx.request_repaint();
-                            }
-                            Err(error) => {
-                                app.ui_state.status_message = "Simulation failed".into();
-                                app.ui_state
-                                    .console_log
-                                    .push(format!("✖ Simulation failed: {error}"));
-                            }
-                        }
-                    }
                     if ui.small_button("Clear log").clicked() {
                         app.ui_state.console_log.clear();
                     }
