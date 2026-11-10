@@ -6,7 +6,6 @@ const MUTED: egui::Color32 = egui::Color32::from_rgb(100, 100, 120);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let mut project_changed = false;
-    let mut request_model_fit = false;
     let model_bounds = app
         .ui_state
         .selected_model
@@ -523,255 +522,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                             });
                         }
                     }
-
-                    // ── Empty state ───────────────────────────────────────────────
-                    if app.ui_state.selected_layer.is_none()
-                        && app.ui_state.selected_operation.is_none()
-                    {
-                        let units = app.ui_state.display_units;
-                        ui.collapsing("STOCK & WORK SETUP", |ui| {
-                            ui.add_space(6.0);
-                            if let Some(bounds) = model_bounds {
-                                ui.label("Model bounds (mm)");
-                                for axis in 0..3 {
-                                    ui.label(format!(
-                                        "{}: {:.2} to {:.2}  (size {:.2})",
-                                        ["X", "Y", "Z"][axis],
-                                        bounds[0][axis],
-                                        bounds[1][axis],
-                                        bounds[1][axis] - bounds[0][axis]
-                                    ));
-                                }
-                                if ui.button("Fit model to stock…").clicked() {
-                                    request_model_fit = true;
-                                }
-                                let selected_model = app
-                                    .ui_state
-                                    .selected_model
-                                    .filter(|index| {
-                                        app.project
-                                            .models
-                                            .get(*index)
-                                            .is_some_and(|model| model.visible)
-                                    })
-                                    .or_else(|| {
-                                        app.project.models.iter().position(|model| model.visible)
-                                    });
-                                if let Some(index) = selected_model {
-                                    if app.project.models[index].transform
-                                        != crate::workspace::model::ModelTransform::default()
-                                        && ui.button("Reset model fit").clicked()
-                                    {
-                                        app.project.models[index].reset_transform();
-                                        project_changed = true;
-                                        app.ui_state.request_fit = true;
-                                        invalidate_model_toolpaths(app);
-                                    }
-                                }
-                                ui.label(
-                                    "Keeps stock size fixed and scales the model proportionally.",
-                                );
-                                ui.add_space(6.0);
-                            }
-                            let setup = &mut app.project.setup;
-                            ui.label("Stock size");
-                            for (axis, value) in ["X", "Y", "Z"]
-                                .into_iter()
-                                .zip(setup.stock_size_mm.iter_mut())
-                            {
-                                prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
-                                    project_changed |=
-                                        unit_drag(ui, value, units, 0.1, 0.1, 5000.0);
-                                });
-                            }
-                            ui.label("Stock origin");
-                            for (axis, value) in ["X", "Y", "Z"]
-                                .into_iter()
-                                .zip(setup.stock_origin_mm.iter_mut())
-                            {
-                                prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
-                                    project_changed |=
-                                        unit_drag(ui, value, units, 0.1, -5000.0, 5000.0);
-                                });
-                            }
-                            ui.label("Work origin");
-                            for (axis, value) in ["X", "Y", "Z"]
-                                .into_iter()
-                                .zip(setup.work_origin_mm.iter_mut())
-                            {
-                                prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
-                                    project_changed |=
-                                        unit_drag(ui, value, units, 0.1, -5000.0, 5000.0);
-                                });
-                            }
-                            prop_row(ui, "Z orientation", |ui| {
-                                egui::ComboBox::from_id_salt("setup_axis")
-                                    .selected_text(format!("{:?}", setup.axis))
-                                    .show_ui(ui, |ui| {
-                                        project_changed |= ui
-                                            .selectable_value(
-                                                &mut setup.axis,
-                                                crate::workspace::setup::WorkAxis::ZUp,
-                                                "Z up",
-                                            )
-                                            .changed();
-                                        project_changed |= ui
-                                            .selectable_value(
-                                                &mut setup.axis,
-                                                crate::workspace::setup::WorkAxis::ZDown,
-                                                "Z down",
-                                            )
-                                            .changed();
-                                    });
-                            });
-                            prop_row(ui, "Work offset", |ui| {
-                                egui::ComboBox::from_id_salt("setup_work_offset")
-                                    .selected_text(setup.work_offset.code())
-                                    .show_ui(ui, |ui| {
-                                        for offset in [
-                                            crate::workspace::setup::WorkOffset::G54,
-                                            crate::workspace::setup::WorkOffset::G55,
-                                            crate::workspace::setup::WorkOffset::G56,
-                                            crate::workspace::setup::WorkOffset::G57,
-                                            crate::workspace::setup::WorkOffset::G58,
-                                            crate::workspace::setup::WorkOffset::G59,
-                                        ] {
-                                            project_changed |= ui
-                                                .selectable_value(
-                                                    &mut setup.work_offset,
-                                                    offset,
-                                                    offset.code(),
-                                                )
-                                                .changed();
-                                        }
-                                    });
-                            });
-                            for (label, value) in [
-                                ("Safe Z", &mut setup.safe_z_mm),
-                                ("Clearance", &mut setup.clearance_mm),
-                                ("Boundary margin", &mut setup.boundary_margin_mm),
-                                ("Stepdown", &mut setup.stepdown_mm),
-                                ("Chip load", &mut setup.chip_load_mm),
-                            ] {
-                                prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
-                                    project_changed |= unit_drag(ui, value, units, 0.1, 0.0, 500.0);
-                                });
-                            }
-                            prop_row(ui, "Stepover (%)", |ui| {
-                                project_changed |= ui
-                                    .add(
-                                        egui::DragValue::new(&mut setup.stepover_percent)
-                                            .range(1.0..=95.0),
-                                    )
-                                    .changed();
-                            });
-                            prop_row(ui, "Ramp angle (°)", |ui| {
-                                project_changed |= ui
-                                    .add(
-                                        egui::DragValue::new(&mut setup.ramp_angle_deg)
-                                            .range(0.0..=45.0),
-                                    )
-                                    .changed();
-                            });
-                            for (label, value) in [
-                                ("STEP chordal tolerance", &mut setup.chordal_tolerance_mm),
-                                ("Path tolerance", &mut setup.path_tolerance_mm),
-                            ] {
-                                prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
-                                    project_changed |=
-                                        unit_drag(ui, value, units, 0.005, 0.001, 1.0);
-                                });
-                            }
-                            prop_row(ui, "Material", |ui| {
-                                project_changed |=
-                                    ui.text_edit_singleline(&mut setup.material).changed();
-                            });
-                            let mut limits_enabled = setup.machine_limits.is_some();
-                            if ui
-                                .checkbox(&mut limits_enabled, "Check machine travel limits")
-                                .changed()
-                            {
-                                setup.machine_limits = limits_enabled.then(Default::default);
-                                project_changed = true;
-                            }
-                            if let Some(limits) = &mut setup.machine_limits {
-                                ui.label(
-                                    egui::RichText::new("Machine travel limits (mm)").color(MUTED),
-                                );
-                                for axis in 0..3 {
-                                    ui.horizontal(|ui| {
-                                        ui.label(["X", "Y", "Z"][axis]);
-                                        ui.label("Min");
-                                        project_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut limits.min_mm[axis])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        ui.label("Max");
-                                        project_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut limits.max_mm[axis])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                    });
-                                }
-                                ui.label(
-                                egui::RichText::new(
-                                    "Bounds are checked in the selected work coordinate system.",
-                                )
-                                .size(10.0)
-                                .color(MUTED),
-                            );
-                            }
-                            let checks = if let Some(bounds) = model_bounds {
-                                setup.validate_for(bounds, &app.project.default_tool)
-                            } else {
-                                let mut checks = Vec::new();
-                                if let Err(e) = setup.validate() {
-                                    checks.push(e);
-                                }
-                                if let Err(e) = app.project.default_tool.validate() {
-                                    checks.push(e);
-                                }
-                                checks
-                            };
-                            ui.add_space(8.0);
-                            if !checks.is_empty() {
-                                for check in checks {
-                                    ui.label(
-                                        egui::RichText::new(format!("⚠ {check}"))
-                                            .color(egui::Color32::YELLOW),
-                                    );
-                                }
-                            }
-                        });
-                    }
                 });
         });
     if project_changed {
         app.ui_state.project_dirty = true;
         app.scene_sig.clear();
-    }
-    if request_model_fit {
-        let model_index = app
-            .ui_state
-            .selected_model
-            .filter(|index| {
-                app.project
-                    .models
-                    .get(*index)
-                    .is_some_and(|model| model.visible)
-            })
-            .or_else(|| app.project.models.iter().position(|model| model.visible));
-        if let Some(index) = model_index {
-            app.ui_state.fit_model_rotation_deg = app.project.models[index]
-                .transform
-                .rotation_degrees
-                .map(|angle| angle.round() as i16);
-        }
-        app.ui_state.show_fit_model_dialog = true;
     }
     show_fit_model_dialog(ctx, app);
 }
@@ -944,6 +699,9 @@ pub fn show_tool_database_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
     let mut edit_tool = None;
     let mut delete_tool = None;
     let mut save_current = false;
+    let mut view_tool = None;
+    let built_in_tools = crate::cam::tool::built_in_tools();
+    let custom_tools = app.project.tools.clone();
 
     egui::Window::new("Tool Database")
         .id(egui::Id::new("tool_database_dialog"))
@@ -963,35 +721,79 @@ pub fn show_tool_database_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
             });
             ui.separator();
 
-            if app.project.tools.is_empty() {
+            if app.project.tools.is_empty() && built_in_tools.is_empty() {
                 ui.label("No tools saved yet. Use Create Tool to add one.");
             }
 
             egui::ScrollArea::vertical()
                 .max_height(360.0)
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                 .show(ui, |ui| {
-                    for (index, tool) in app.project.tools.iter().enumerate() {
+                    for (index, tool) in built_in_tools.iter().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(format!(
-                                "{} · {:.2} mm · {:?}",
-                                tool.name, tool.diameter_mm, tool.shape
-                            ));
-                            if ui.button("Use").clicked() {
-                                choose_tool = Some(index);
-                            }
-                            if ui.small_button("Edit").clicked() {
-                                edit_tool = Some(index);
-                            }
-                            if ui.small_button("🗑").on_hover_text("Delete tool").clicked() {
-                                delete_tool = Some(index);
-                            }
+                            show_tool_image(ui, ctx, app, &tool.name);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 10.0;
+                                ui.strong(
+                                    egui::RichText::new(&tool.name).color(tool_name_color(app)),
+                                );
+                                ui.label(tool_dimensions(&tool));
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .small_button("👁")
+                                        .on_hover_text("View tool description")
+                                        .clicked()
+                                    {
+                                        view_tool = Some(tool.clone());
+                                    }
+                                    if ui.button("Use").clicked() {
+                                        choose_tool = Some((true, index));
+                                    }
+                                });
+                            });
                         });
+                        ui.add_space(6.0);
+                    }
+                    for (index, tool) in custom_tools.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            show_tool_image(ui, ctx, app, &tool.name);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 10.0;
+                                ui.strong(
+                                    egui::RichText::new(&tool.name).color(tool_name_color(app)),
+                                );
+                                ui.label(tool_dimensions(tool));
+                                ui.horizontal(|ui| {
+                                    if ui
+                                        .small_button("👁")
+                                        .on_hover_text("View tool description")
+                                        .clicked()
+                                    {
+                                        view_tool = Some(tool.clone());
+                                    }
+                                    if ui.button("Use").clicked() {
+                                        choose_tool = Some((false, index));
+                                    }
+                                    if ui.small_button("Edit").clicked() {
+                                        edit_tool = Some(index);
+                                    }
+                                    if ui.small_button("🗑").on_hover_text("Delete tool").clicked()
+                                    {
+                                        delete_tool = Some(index);
+                                    }
+                                });
+                            });
+                        });
+                        ui.add_space(6.0);
                     }
                 });
         });
 
     if !open {
         app.ui_state.show_tool_database = false;
+    }
+    if let Some(tool) = view_tool {
+        app.ui_state.tool_details = Some(tool);
     }
     if save_current {
         if let Some(index) = selected_operation {
@@ -1003,7 +805,11 @@ pub fn show_tool_database_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
         }
     }
     if let Some(index) = choose_tool {
-        let tool = app.project.tools[index].clone();
+        let tool = if index.0 {
+            built_in_tools[index.1].clone()
+        } else {
+            app.project.tools[index.1].clone()
+        };
         if let Some(operation_index) = selected_operation {
             app.project.operations[operation_index].tool = tool;
         } else {
@@ -1020,6 +826,265 @@ pub fn show_tool_database_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
         app.project.tools.remove(index);
         app.ui_state.project_dirty = true;
         app.save_tool_database();
+    }
+}
+
+pub fn show_setup_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let units = app.ui_state.display_units;
+    let mut changed = false;
+
+    if app.ui_state.show_stock_dialog {
+        let mut open = true;
+        egui::Window::new("Stock Setup")
+            .id(egui::Id::new("stock_setup_dialog"))
+            .default_width(400.0)
+            .resizable(true)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(600.0)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        if let Some(model) = app.project.models.iter().find(|model| model.visible) {
+                            ui.label(format!(
+                                "Model bounds: {:.2} × {:.2} × {:.2} mm",
+                                model.bounds[1][0] - model.bounds[0][0],
+                                model.bounds[1][1] - model.bounds[0][1],
+                                model.bounds[1][2] - model.bounds[0][2]
+                            ));
+                            if ui.button("Fit model to stock…").clicked() {
+                                app.ui_state.fit_model_rotation_deg = model
+                                    .transform
+                                    .rotation_degrees
+                                    .map(|angle| angle.round() as i16);
+                                app.ui_state.show_fit_model_dialog = true;
+                            }
+                            ui.add_space(8.0);
+                        }
+                        let setup = &mut app.project.setup;
+                        for (title, values) in [
+                            ("Stock size", &mut setup.stock_size_mm),
+                            ("Stock origin", &mut setup.stock_origin_mm),
+                        ] {
+                            ui.heading(title);
+                            for (axis, value) in ["X", "Y", "Z"].into_iter().zip(values.iter_mut())
+                            {
+                                prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
+                                    changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0)
+                                });
+                            }
+                        }
+                        for (label, value) in [
+                            ("Safe Z", &mut setup.safe_z_mm),
+                            ("Clearance", &mut setup.clearance_mm),
+                            ("Boundary margin", &mut setup.boundary_margin_mm),
+                            ("Stepdown", &mut setup.stepdown_mm),
+                            ("Chip load", &mut setup.chip_load_mm),
+                        ] {
+                            prop_row(ui, &format!("{} ({})", label, units.label()), |ui| {
+                                changed |= unit_drag(ui, value, units, 0.1, 0.0, 500.0)
+                            });
+                        }
+                        prop_row(ui, "Stepover (%)", |ui| {
+                            changed |= ui
+                                .add(
+                                    egui::DragValue::new(&mut setup.stepover_percent)
+                                        .range(1.0..=95.0),
+                                )
+                                .changed()
+                        });
+                        prop_row(ui, "Ramp angle (°)", |ui| {
+                            changed |= ui
+                                .add(
+                                    egui::DragValue::new(&mut setup.ramp_angle_deg)
+                                        .range(0.0..=45.0),
+                                )
+                                .changed()
+                        });
+                        prop_row(ui, "Material", |ui| {
+                            changed |= ui.text_edit_singleline(&mut setup.material).changed()
+                        });
+                    });
+            });
+        if !open {
+            app.ui_state.show_stock_dialog = false;
+        }
+    }
+
+    if app.ui_state.show_work_dialog {
+        let mut open = true;
+        egui::Window::new("Work Setup")
+            .id(egui::Id::new("work_setup_dialog"))
+            .default_width(360.0)
+            .resizable(true)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                let setup = &mut app.project.setup;
+                ui.heading("Work origin");
+                for (axis, value) in ["X", "Y", "Z"]
+                    .into_iter()
+                    .zip(setup.work_origin_mm.iter_mut())
+                {
+                    prop_row(ui, &format!("{} ({})", axis, units.label()), |ui| {
+                        changed |= unit_drag(ui, value, units, 0.1, -5000.0, 5000.0)
+                    });
+                }
+                prop_row(ui, "Z orientation", |ui| {
+                    egui::ComboBox::from_id_salt("setup_dialog_axis")
+                        .selected_text(format!("{:?}", setup.axis))
+                        .show_ui(ui, |ui| {
+                            changed |= ui
+                                .selectable_value(
+                                    &mut setup.axis,
+                                    crate::workspace::setup::WorkAxis::ZUp,
+                                    "Z up",
+                                )
+                                .changed();
+                            changed |= ui
+                                .selectable_value(
+                                    &mut setup.axis,
+                                    crate::workspace::setup::WorkAxis::ZDown,
+                                    "Z down",
+                                )
+                                .changed();
+                        });
+                });
+                prop_row(ui, "Work offset", |ui| {
+                    egui::ComboBox::from_id_salt("setup_dialog_offset")
+                        .selected_text(setup.work_offset.code())
+                        .show_ui(ui, |ui| {
+                            for offset in [
+                                crate::workspace::setup::WorkOffset::G54,
+                                crate::workspace::setup::WorkOffset::G55,
+                                crate::workspace::setup::WorkOffset::G56,
+                                crate::workspace::setup::WorkOffset::G57,
+                                crate::workspace::setup::WorkOffset::G58,
+                                crate::workspace::setup::WorkOffset::G59,
+                            ] {
+                                changed |= ui
+                                    .selectable_value(&mut setup.work_offset, offset, offset.code())
+                                    .changed();
+                            }
+                        });
+                });
+            });
+        if !open {
+            app.ui_state.show_work_dialog = false;
+        }
+    }
+
+    if changed {
+        app.ui_state.project_dirty = true;
+        app.scene_sig.clear();
+    }
+}
+
+fn tool_dimensions(tool: &crate::cam::tool::Tool) -> String {
+    let unique_length = tool
+        .name
+        .split("OAL ")
+        .nth(1)
+        .map(|value| format!("OAL {value}"));
+    let flute_variant = tool
+        .name
+        .split("flute ")
+        .nth(1)
+        .map(|value| format!("flute {value}"));
+    unique_length
+        .or(flute_variant)
+        .unwrap_or_else(|| format!("Flute {:.1} mm", tool.flute_length_mm))
+}
+
+fn tool_name_color(app: &TekkCamApp) -> egui::Color32 {
+    if app.ui_state.theme == crate::app::AppTheme::Light {
+        egui::Color32::from_rgb(30, 32, 40)
+    } else {
+        egui::Color32::from_rgb(240, 240, 245)
+    }
+}
+
+fn show_tool_image(ui: &mut egui::Ui, ctx: &egui::Context, app: &mut TekkCamApp, name: &str) {
+    let filename = if name.starts_with("4 mm Carbide Endmill") {
+        "4-mm-carbide-endmill.png".to_owned()
+    } else if name.starts_with("2 mm Carbide Endmill") {
+        "2-mm-carbide-endmill.png".to_owned()
+    } else if name.starts_with("6 mm Carbide Endmill") {
+        "6-mm-carbide-endmill.png".to_owned()
+    } else if name.starts_with("4 mm Single Flute Endmill") {
+        "4-mm-single-flute-endmill.png".to_owned()
+    } else {
+        let slug: String = name
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        let slug = slug
+            .split('-')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+        format!("{slug}.png")
+    };
+    let path = std::path::Path::new("assets/tools").join(filename);
+    let key = path.to_string_lossy().to_string();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(96.0, 96.0), egui::Sense::hover());
+    if ui.is_rect_visible(rect) && !app.ui_state.tool_image_cache.contains_key(&key) {
+        if let Ok(bytes) = std::fs::read(&path) {
+            if let Ok(image) = image::load_from_memory(&bytes) {
+                let image = image.to_rgba8();
+                let size = [image.width() as usize, image.height() as usize];
+                let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                let texture = ctx.load_texture(&key, color, egui::TextureOptions::LINEAR);
+                app.ui_state
+                    .tool_image_cache
+                    .insert(key.clone(), Some(texture));
+            } else {
+                app.ui_state.tool_image_cache.insert(key.clone(), None);
+            }
+        } else {
+            app.ui_state.tool_image_cache.insert(key.clone(), None);
+        }
+    }
+    if let Some(Some(texture)) = app.ui_state.tool_image_cache.get(&key) {
+        ui.put(
+            rect,
+            egui::Image::new(texture).fit_to_exact_size(rect.size()),
+        );
+    }
+}
+
+pub fn show_tool_details_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
+    let Some(tool) = app.ui_state.tool_details.clone() else {
+        return;
+    };
+    let mut open = true;
+    egui::Window::new("Tool description")
+        .id(egui::Id::new("tool_details_dialog"))
+        .collapsible(false)
+        .resizable(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.strong(&tool.name);
+            ui.separator();
+            ui.label(format!(
+                "{} mm diameter; {:.1} mm flute length.",
+                tool.diameter_mm, tool.flute_length_mm
+            ));
+            if !tool.description.is_empty() {
+                ui.label(&tool.description);
+            } else {
+                ui.label(format!(
+                    "{:?} cutter. Additional product description is not available.",
+                    tool.shape
+                ));
+            }
+            ui.label(format!(
+                "Default CAM settings: feed {:.0} mm/min, plunge {:.0} mm/min, spindle {:.0} RPM.",
+                tool.feed_rate_mm_min, tool.plunge_rate_mm_min, tool.spindle_rpm
+            ));
+        });
+    if !open {
+        app.ui_state.tool_details = None;
     }
 }
 

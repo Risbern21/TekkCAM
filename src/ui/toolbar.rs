@@ -392,8 +392,14 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                     app.ui_state.tool_editor_error = None;
                 }
                 response.on_hover_text("Create new tool");
-                if ui.button("Tool Database").clicked() {
+                if ui.button("Tools").clicked() {
                     app.ui_state.show_tool_database = true;
+                }
+                if ui.button("Stock").clicked() {
+                    app.ui_state.show_stock_dialog = true;
+                }
+                if ui.button("Work").clicked() {
+                    app.ui_state.show_work_dialog = true;
                 }
                 ui.separator();
                 if ui

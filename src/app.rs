@@ -278,6 +278,10 @@ pub struct UiState {
     pub tool_editor_index: Option<usize>,
     pub tool_editor_error: Option<String>,
     pub show_tool_database: bool,
+    pub show_stock_dialog: bool,
+    pub show_work_dialog: bool,
+    pub tool_details: Option<crate::cam::tool::Tool>,
+    pub tool_image_cache: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     pub show_fit_model_dialog: bool,
     pub fit_model_rotation_deg: [i16; 3],
     pub fit_model_preview: Option<(usize, crate::workspace::model::ModelTransform)>,
@@ -353,6 +357,10 @@ impl Default for UiState {
             tool_editor_index: None,
             tool_editor_error: None,
             show_tool_database: false,
+            show_stock_dialog: false,
+            show_work_dialog: false,
+            tool_details: None,
+            tool_image_cache: std::collections::HashMap::new(),
             show_fit_model_dialog: false,
             fit_model_rotation_deg: [0; 3],
             fit_model_preview: None,
@@ -1341,6 +1349,8 @@ impl eframe::App for TekkCamApp {
         }
         properties::show_tool_editor(ctx, self);
         properties::show_tool_database_dialog(ctx, self);
+        properties::show_setup_dialog(ctx, self);
+        properties::show_tool_details_dialog(ctx, self);
 
         // ── Central viewport ─────────────────────────────────────────────────
         viewport::show(ctx, self);

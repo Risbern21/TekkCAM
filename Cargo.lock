@@ -1716,6 +1716,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -3309,6 +3311,7 @@ dependencies = [
  "egui-wgpu",
  "env_logger",
  "glam",
+ "image",
  "log",
  "oxideav-step",
  "pollster",

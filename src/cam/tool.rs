@@ -12,6 +12,8 @@ pub enum ToolShape {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tool {
     pub name: String,
+    #[serde(default)]
+    pub description: String,
     pub diameter_mm: f64,
     pub feed_rate_mm_min: f64,
     pub plunge_rate_mm_min: f64,
@@ -42,6 +44,7 @@ impl Default for Tool {
     fn default() -> Self {
         Self {
             name: "End Mill 1mm".into(),
+            description: String::new(),
             diameter_mm: 1.0,
             feed_rate_mm_min: 800.0,
             plunge_rate_mm_min: 200.0,
@@ -53,6 +56,78 @@ impl Default for Tool {
             holder_clearance_mm: default_holder_clearance(),
         }
     }
+}
+
+/// Tools shipped with the application. These are presented alongside the
+/// user's library, but are never included in the persisted tool database.
+pub fn built_in_tools() -> Vec<Tool> {
+    let mut tools = Vec::new();
+    let mut add = |name: &str,
+                   description: &str,
+                   diameter: f64,
+                   flute_length: f64,
+                   reach: f64,
+                   corner: f64| {
+        tools.push(Tool {
+            name: name.into(),
+            description: description.into(),
+            diameter_mm: diameter,
+            flute_length_mm: flute_length,
+            stickout_mm: reach.max(flute_length),
+            corner_radius_mm: corner,
+            ..Tool::default()
+        });
+    };
+
+    for length in [50, 75, 100] {
+        add(
+            &format!("4 mm Carbide Endmill · OAL {length} mm"),
+            "55 HRC solid carbide, four flutes, Bronze TiSiN coating, 35° helix and 0.5 μm grain size. For steel, alloy steel, cast iron, stainless steel and other hard materials; suitable for face, shoulder and side milling. Plastic non-breakable packaging.",
+            4.0,
+            10.0,
+            20.0,
+            0.0,
+        );
+    }
+    add(
+        "2 mm Carbide Endmill · OAL 50 mm",
+        "55 HRC solid carbide, four flutes, Bronze TiSiN coating, 35° helix and 0.5 μm grain size. For steel, alloy steel, cast iron, stainless steel and other hard materials; suitable for face, shoulder and side milling. Plastic non-breakable packaging.",
+        2.0,
+        4.0,
+        20.0,
+        0.0,
+    );
+
+    for (coating, hrc, length, flute_length, corner) in [
+        ("Bronze", 55, 50, 15, 0.0),
+        ("Black", 45, 50, 15, 0.0),
+        ("Purple", 45, 50, 15, 0.0),
+        ("Bronze", 55, 150, 30, 0.0),
+        ("Purple", 45, 150, 35, 0.5),
+    ] {
+        add(
+            &format!("6 mm Carbide Endmill · OAL {length} mm · {coating}"),
+            &format!(
+                "{hrc} HRC, two-flute carbide endmill with {coating} coating for metal and wood."
+            ),
+            6.0,
+            flute_length as f64,
+            flute_length as f64 + 10.0,
+            corner,
+        );
+    }
+
+    for (flute_length, total_length) in [(12, 45), (17, 28), (22, 55), (25, 55), (32, 55)] {
+        add(
+            &format!("4 mm Single Flute Endmill · flute {flute_length} mm · OAL {total_length} mm"),
+            "Cemented carbide single-flute cutter with a sharp edge and chip clearance. For acrylic, PVC, MDF, density board, wood, gold, aluminium and other soft materials; fits many milling and CNC machines.",
+            4.0,
+            flute_length as f64,
+            flute_length as f64 + 10.0,
+            0.0,
+        );
+    }
+    tools
 }
 
 impl Tool {
