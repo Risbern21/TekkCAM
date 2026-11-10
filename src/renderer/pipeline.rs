@@ -122,7 +122,11 @@ impl Scene {
                 Vec::with_capacity(model.triangles.len())
             };
             for face in model.triangles.iter().step_by(stride) {
-                let points = face.map(|index| model.vertices[index as usize]);
+                let points = face.map(|index| {
+                    model
+                        .transformed_vertex(index as usize)
+                        .unwrap_or(model.vertices[index as usize])
+                });
                 if orbit_preview {
                     append_shaded_triangle(&mut scene, points, base, orbit);
                 } else {
@@ -198,7 +202,10 @@ impl Scene {
         if view_3d {
             if let Some(model) = models.iter().find(|model| model.visible) {
                 let extent = (0..3)
-                    .map(|axis| (model.bounds[1][axis] - model.bounds[0][axis]).abs())
+                    .map(|axis| {
+                        let bounds = model.transformed_bounds();
+                        (bounds[1][axis] - bounds[0][axis]).abs()
+                    })
                     .fold(1.0_f32, f32::max)
                     * 0.6;
                 for (end, color) in [
@@ -451,9 +458,10 @@ fn arc_sweep(start: f64, end: f64, clockwise: bool) -> f64 {
 pub fn projected_model_bounds(model: &Model, orbit: [f32; 2]) -> ([f32; 2], [f32; 2]) {
     let mut min = [f32::INFINITY; 2];
     let mut max = [f32::NEG_INFINITY; 2];
-    for x in [model.bounds[0][0], model.bounds[1][0]] {
-        for y in [model.bounds[0][1], model.bounds[1][1]] {
-            for z in [model.bounds[0][2], model.bounds[1][2]] {
+    let bounds = model.transformed_bounds();
+    for x in [bounds[0][0], bounds[1][0]] {
+        for y in [bounds[0][1], bounds[1][1]] {
+            for z in [bounds[0][2], bounds[1][2]] {
                 let point = project_point(x, y, z, true, orbit);
                 for axis in 0..2 {
                     min[axis] = min[axis].min(point[axis]);

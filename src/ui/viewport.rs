@@ -439,8 +439,9 @@ fn fit_to_geometry(app: &mut TekkCamApp, size: egui::Vec2) {
     }
     if app.ui_state.show_3d_view {
         for model in app.project.models.iter().filter(|model| model.visible) {
-            let mn = [model.bounds[0][0], model.bounds[0][1]];
-            let mx = [model.bounds[1][0], model.bounds[1][1]];
+            let model_bounds = model.transformed_bounds();
+            let mn = [model_bounds[0][0], model_bounds[0][1]];
+            let mx = [model_bounds[1][0], model_bounds[1][1]];
             bounds = Some(match bounds {
                 None => (mn, mx),
                 Some((a, b)) => (

@@ -148,6 +148,7 @@ pub fn parse_with_chordal_tolerance(path: &str, tolerance_mm: f64) -> anyhow::Re
         source_schema,
         source_unit,
         units_are_millimeters: source_unit != StepLengthUnit::Unknown,
+        transform: Default::default(),
         vertices,
         triangles,
         bodies,

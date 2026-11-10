@@ -592,7 +592,7 @@ fn validate_before_generation(project: &Project) -> CliResult<()> {
 }
 
 fn inspect(project: &Project) -> Value {
-    json!({"name":project.name,"layers":project.layers.iter().map(|l| json!({"name":l.name,"kind":format!("{:?}",l.kind),"visible":l.visible,"lines":l.geometry.lines.len()/2,"triangles":l.geometry.triangles.len()/3,"drill_hits":l.geometry.drills.len()})).collect::<Vec<_>>(),"models":project.models.iter().map(|m|json!({"name":m.name,"schema":m.source_schema,"unit":m.source_unit.label(),"units_are_millimeters":m.units_are_millimeters,"bodies":m.bodies.len(),"triangles":m.triangles.len(),"bounds":m.bounds,"import_warnings":m.import_notes})).collect::<Vec<_>>(),"import_warnings":project.import_warnings,"operations":project.operations.len(),"tools":project.tools.len(),"post":project.post_dialect.label(),"work_offset":project.setup.work_offset.code()})
+    json!({"name":project.name,"layers":project.layers.iter().map(|l| json!({"name":l.name,"kind":format!("{:?}",l.kind),"visible":l.visible,"lines":l.geometry.lines.len()/2,"triangles":l.geometry.triangles.len()/3,"drill_hits":l.geometry.drills.len()})).collect::<Vec<_>>(),"models":project.models.iter().map(|m|json!({"name":m.name,"schema":m.source_schema,"unit":m.source_unit.label(),"units_are_millimeters":m.units_are_millimeters,"bodies":m.bodies.len(),"triangles":m.triangles.len(),"bounds":m.transformed_bounds(),"source_bounds":m.bounds,"import_warnings":m.import_notes})).collect::<Vec<_>>(),"import_warnings":project.import_warnings,"operations":project.operations.len(),"tools":project.tools.len(),"post":project.post_dialect.label(),"work_offset":project.setup.work_offset.code()})
 }
 
 fn validate_project(project: &Project) -> Value {
@@ -609,7 +609,10 @@ fn validate_project(project: &Project) -> Value {
             errors.push(format!("operation '{}': {e}", op.name));
         }
         for model in &project.models {
-            for issue in project.setup.validate_for(model.bounds, &op.tool) {
+            for issue in project
+                .setup
+                .validate_for(model.transformed_bounds(), &op.tool)
+            {
                 errors.push(format!(
                     "operation '{}' / model '{}': {issue}",
                     op.name, model.name

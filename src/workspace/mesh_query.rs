@@ -24,10 +24,11 @@ impl<'a> MeshQuery<'a> {
     pub fn new(model: &'a Model) -> Self {
         let bucket_dim =
             ((model.triangles.len() as f64 / 4.0).sqrt().ceil() as usize).clamp(8, 128);
-        let xy_min = [model.bounds[0][0] as f64, model.bounds[0][1] as f64];
+        let bounds = model.transformed_bounds();
+        let xy_min = [bounds[0][0] as f64, bounds[0][1] as f64];
         let extent = [
-            (model.bounds[1][0] as f64 - xy_min[0]).max(1e-9),
-            (model.bounds[1][1] as f64 - xy_min[1]).max(1e-9),
+            (bounds[1][0] as f64 - xy_min[0]).max(1e-9),
+            (bounds[1][1] as f64 - xy_min[1]).max(1e-9),
         ];
         let cell_size = [extent[0] / bucket_dim as f64, extent[1] / bucket_dim as f64];
         let mut query = Self {
@@ -165,8 +166,7 @@ impl<'a> MeshQuery<'a> {
 
     fn vertex(&self, index: u32) -> Option<[f64; 3]> {
         self.model
-            .vertices
-            .get(index as usize)
+            .transformed_vertex(index as usize)
             .map(|v| [v[0] as f64, v[1] as f64, v[2] as f64])
     }
 
@@ -260,6 +260,7 @@ mod tests {
             source_schema: vec![],
             source_unit: StepLengthUnit::Millimeter,
             units_are_millimeters: true,
+            transform: Default::default(),
             vertices: vec![
                 [0., 0., 0.],
                 [1., 0., 0.],

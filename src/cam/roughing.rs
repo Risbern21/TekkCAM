@@ -32,7 +32,7 @@ pub fn estimate_remaining_stock(
         .map_err(|error| format!("setup: {error}"))?;
     tool.validate().map_err(|error| format!("tool: {error}"))?;
     model.validate()?;
-    let setup_issues = setup.validate_for(model.bounds, tool);
+    let setup_issues = setup.validate_for(model.transformed_bounds(), tool);
     if !setup_issues.is_empty() {
         return Err(setup_issues.join("; "));
     }
@@ -221,7 +221,7 @@ pub fn generate(
     if !allowance_mm.is_finite() || allowance_mm < 0.0 {
         return Err("roughing allowance must be non-negative".into());
     }
-    let issues = setup.validate_for(model.bounds, tool);
+    let issues = setup.validate_for(model.transformed_bounds(), tool);
     if !issues.is_empty() {
         return Err(issues.join("; "));
     }
@@ -452,6 +452,7 @@ mod tests {
             source_schema: vec![],
             source_unit: StepLengthUnit::Millimeter,
             units_are_millimeters: true,
+            transform: Default::default(),
             vertices: vec![
                 [4., 4., 0.],
                 [6., 4., 0.],

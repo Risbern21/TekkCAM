@@ -47,7 +47,8 @@ pub fn generate(
     if !allowance_mm.is_finite() || allowance_mm < 0.0 {
         return Err("finishing allowance must be non-negative".into());
     }
-    let issues = setup.validate_for(model.bounds, tool);
+    let model_bounds = model.transformed_bounds();
+    let issues = setup.validate_for(model_bounds, tool);
     if !issues.is_empty() {
         return Err(issues.join("; "));
     }
@@ -136,8 +137,8 @@ pub fn generate(
             }
         }
         FinishStrategy::Waterline => {
-            let mut z = model.bounds[1][2] as f64;
-            let floor = model.bounds[0][2] as f64;
+            let mut z = model_bounds[1][2] as f64;
+            let floor = model_bounds[0][2] as f64;
             let mut levels = 0usize;
             while z >= floor {
                 let segments = plane_segments(model, z);
@@ -189,14 +190,15 @@ pub fn generate(
 
 fn model_xy_bounds(model: &Model, setup: &MachiningSetup) -> (f64, f64, f64, f64) {
     let margin = tool_boundary_margin(setup);
+    let bounds = model.transformed_bounds();
     let stock_min = setup.stock_origin_mm;
     let stock_max_x = stock_min[0] + setup.stock_size_mm[0];
     let stock_max_y = stock_min[1] + setup.stock_size_mm[1];
     (
-        (model.bounds[0][0] as f64).max(stock_min[0] + margin),
-        (model.bounds[0][1] as f64).max(stock_min[1] + margin),
-        (model.bounds[1][0] as f64).min(stock_max_x - margin),
-        (model.bounds[1][1] as f64).min(stock_max_y - margin),
+        (bounds[0][0] as f64).max(stock_min[0] + margin),
+        (bounds[0][1] as f64).max(stock_min[1] + margin),
+        (bounds[1][0] as f64).min(stock_max_x - margin),
+        (bounds[1][1] as f64).min(stock_max_y - margin),
     )
 }
 
@@ -418,15 +420,21 @@ fn ensure_path_inside_stock(
 }
 
 fn xmax_extent(model: &Model) -> f64 {
-    let x = (model.bounds[1][0] - model.bounds[0][0]).abs() as f64;
-    let y = (model.bounds[1][1] - model.bounds[0][1]).abs() as f64;
+    let bounds = model.transformed_bounds();
+    let x = (bounds[1][0] - bounds[0][0]).abs() as f64;
+    let y = (bounds[1][1] - bounds[0][1]).abs() as f64;
     x.max(y).max(1.0)
 }
 
 fn plane_segments(model: &Model, z: f64) -> Vec<[[f64; 2]; 2]> {
     let mut segments = Vec::new();
     for triangle in &model.triangles {
-        let points = triangle.map(|index| model.vertices[index as usize].map(f64::from));
+        let points = triangle.map(|index| {
+            model
+                .transformed_vertex(index as usize)
+                .unwrap_or(model.vertices[index as usize])
+                .map(f64::from)
+        });
         let mut intersections = Vec::with_capacity(2);
         for edge in [[0, 1], [1, 2], [2, 0]] {
             let a = points[edge[0]];
@@ -505,6 +513,7 @@ mod tests {
             source_schema: vec![],
             source_unit: StepLengthUnit::Millimeter,
             units_are_millimeters: true,
+            transform: Default::default(),
             vertices: vec![
                 [4., 4., 0.],
                 [6., 4., 0.],

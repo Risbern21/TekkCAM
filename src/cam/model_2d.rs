@@ -3,14 +3,22 @@ use std::collections::{HashMap, HashSet};
 use crate::workspace::{model::Model, object::Geometry};
 
 /// Project the outer edges of selected STEP source faces into XY geometry for
-/// the existing 2D contour toolpath generator.
+/// the existing 2D contour toolpath generator. When every source face is
+/// selected, use upward-facing triangles to extract the top-view silhouette;
+/// a complete closed shell has no topological boundary of its own.
 pub fn selected_face_boundary(model: &Model, face_ids: &[u64]) -> Result<Geometry, String> {
     if face_ids.is_empty() {
         return Err("select at least one STEP face for the model profile".into());
     }
     model.validate()?;
     let selected: HashSet<u64> = face_ids.iter().copied().collect();
-    let mut edges: HashMap<(u32, u32), ([f32; 3], [f32; 3], usize)> = HashMap::new();
+    let all_faces = model
+        .bodies
+        .iter()
+        .flat_map(|body| body.triangle_face_ids.iter().copied())
+        .collect::<HashSet<_>>();
+    let silhouette_mode = !all_faces.is_empty() && all_faces.is_subset(&selected);
+    let mut edges: HashMap<([i64; 3], [i64; 3]), ([f32; 3], [f32; 3], usize)> = HashMap::new();
     for (triangle_index, triangle) in model.triangles.iter().enumerate() {
         let Some(face_id) = source_face_id(model, triangle_index) else {
             continue;
@@ -18,14 +26,31 @@ pub fn selected_face_boundary(model: &Model, face_ids: &[u64]) -> Result<Geometr
         if !selected.contains(&face_id) {
             continue;
         }
-        for [a, b] in [
-            [triangle[0], triangle[1]],
-            [triangle[1], triangle[2]],
-            [triangle[2], triangle[0]],
-        ] {
-            let key = if a < b { (a, b) } else { (b, a) };
-            let pa = model.vertices[a as usize];
-            let pb = model.vertices[b as usize];
+        let Some(points) = triangle
+            .map(|index| model.transformed_vertex(index as usize))
+            .into_iter()
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        if silhouette_mode {
+            let normal = cross(sub(points[1], points[0]), sub(points[2], points[0]));
+            let length = dot(normal, normal).sqrt();
+            if length <= 1e-12 || normal[2] <= length * 0.05 {
+                continue;
+            }
+        }
+        for (edge_a, edge_b) in [(0, 1), (1, 2), (2, 0)] {
+            let pa = points[edge_a];
+            let pb = points[edge_b];
+            if (pa[0] - pb[0]).hypot(pa[1] - pb[1]) <= 1e-6 {
+                continue;
+            }
+            let quantize_3d =
+                |point: [f32; 3]| point.map(|value| (value as f64 * 1e6).round() as i64);
+            let ka = quantize_3d(pa);
+            let kb = quantize_3d(pb);
+            let key = if ka < kb { (ka, kb) } else { (kb, ka) };
             let entry = edges.entry(key).or_insert((pa, pb, 0));
             entry.2 += 1;
         }
@@ -38,13 +63,10 @@ pub fn selected_face_boundary(model: &Model, face_ids: &[u64]) -> Result<Geometr
             continue;
         }
         let (a, b) = ([a[0], a[1]], [b[0], b[1]]);
-        if (a[0] - b[0]).hypot(a[1] - b[1]) <= 1e-6 {
-            continue;
-        }
-        let quantize = |p: [f32; 2]| {
+        let quantize = |point: [f32; 2]| {
             (
-                (p[0] as f64 * 1e6).round() as i64,
-                (p[1] as f64 * 1e6).round() as i64,
+                (point[0] as f64 * 1e6).round() as i64,
+                (point[1] as f64 * 1e6).round() as i64,
             )
         };
         let ka = quantize(a);
@@ -57,9 +79,29 @@ pub fn selected_face_boundary(model: &Model, face_ids: &[u64]) -> Result<Geometr
         }
     }
     if boundary.lines.is_empty() {
-        return Err("selected STEP faces have no usable projected XY boundary".into());
+        return Err("selected STEP faces have no usable projected XY boundary; orient a machinable face toward +Z".into());
     }
     Ok(boundary)
+}
+
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f64; 3] {
+    [
+        (a[0] - b[0]) as f64,
+        (a[1] - b[1]) as f64,
+        (a[2] - b[2]) as f64,
+    ]
+}
+
+fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 fn source_face_id(model: &Model, triangle_index: usize) -> Option<u64> {
@@ -84,6 +126,7 @@ mod tests {
             source_schema: vec![],
             source_unit: StepLengthUnit::Millimeter,
             units_are_millimeters: true,
+            transform: Default::default(),
             vertices: vec![
                 [0., 0., 0.],
                 [2., 0., 0.],

@@ -245,6 +245,8 @@ pub struct UiState {
     pub tool_editor_index: Option<usize>,
     pub tool_editor_error: Option<String>,
     pub show_tool_database: bool,
+    pub show_fit_model_dialog: bool,
+    pub fit_model_rotation_deg: [i16; 3],
     pub show_settings: bool,
     pub console_input: String,
     pub console_log: Vec<String>,
@@ -316,6 +318,8 @@ impl Default for UiState {
             tool_editor_index: None,
             tool_editor_error: None,
             show_tool_database: false,
+            show_fit_model_dialog: false,
+            fit_model_rotation_deg: [0; 3],
             show_settings: false,
             console_input: String::new(),
             console_log: vec![
@@ -736,7 +740,7 @@ impl TekkCamApp {
             setup_issues.extend(
                 self.project
                     .setup
-                    .validate_for(model.bounds, &operation.tool),
+                    .validate_for(model.transformed_bounds(), &operation.tool),
             );
         }
         if !setup_issues.is_empty() {

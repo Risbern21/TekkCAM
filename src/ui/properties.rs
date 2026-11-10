@@ -6,12 +6,19 @@ const MUTED: egui::Color32 = egui::Color32::from_rgb(100, 100, 120);
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
     let mut project_changed = false;
+    let mut request_model_fit = false;
     let model_bounds = app
         .ui_state
         .selected_model
-        .and_then(|i| app.project.models.get(i))
-        .map(|m| m.bounds)
-        .or_else(|| app.project.models.first().map(|m| m.bounds));
+        .and_then(|i| app.project.models.get(i).filter(|model| model.visible))
+        .map(|m| m.transformed_bounds())
+        .or_else(|| {
+            app.project
+                .models
+                .iter()
+                .find(|model| model.visible)
+                .map(|m| m.transformed_bounds())
+        });
     let panel_bg = if app.ui_state.theme == crate::app::AppTheme::Light {
         egui::Color32::from_rgb(228, 229, 241)
     } else {
@@ -523,7 +530,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                         ui.collapsing("STOCK & WORK SETUP", |ui| {
                             ui.add_space(6.0);
                             if let Some(bounds) = model_bounds {
-                                ui.label("STEP model bounds (mm)");
+                                ui.label("Model bounds (mm)");
                                 for axis in 0..3 {
                                     ui.label(format!(
                                         "{}: {:.2} to {:.2}  (size {:.2})",
@@ -533,37 +540,34 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                                         bounds[1][axis] - bounds[0][axis]
                                     ));
                                 }
-                                if ui.button("Fit stock to model").clicked() {
-                                    let setup = &mut app.project.setup;
-                                    let holder_radius = app
-                                        .project
-                                        .operations
-                                        .iter()
-                                        .map(|operation| {
-                                            operation.tool.diameter_mm * 0.5
-                                                + operation.tool.holder_clearance_mm
-                                        })
-                                        .fold(
-                                            app.project.default_tool.diameter_mm * 0.5
-                                                + app.project.default_tool.holder_clearance_mm,
-                                            f64::max,
-                                        );
-                                    let xy_margin = holder_radius.max(1.0);
-                                    for axis in 0..2 {
-                                        setup.stock_origin_mm[axis] =
-                                            bounds[0][axis] as f64 - xy_margin;
-                                        setup.stock_size_mm[axis] =
-                                            (bounds[1][axis] - bounds[0][axis]) as f64
-                                                + xy_margin * 2.0;
+                                if ui.button("Fit model to stock…").clicked() {
+                                    request_model_fit = true;
+                                }
+                                let selected_model = app
+                                    .ui_state
+                                    .selected_model
+                                    .filter(|index| {
+                                        app.project
+                                            .models
+                                            .get(*index)
+                                            .is_some_and(|model| model.visible)
+                                    })
+                                    .or_else(|| {
+                                        app.project.models.iter().position(|model| model.visible)
+                                    });
+                                if let Some(index) = selected_model {
+                                    if app.project.models[index].transform
+                                        != crate::workspace::model::ModelTransform::default()
+                                        && ui.button("Reset model fit").clicked()
+                                    {
+                                        app.project.models[index].reset_transform();
+                                        project_changed = true;
+                                        app.ui_state.request_fit = true;
+                                        invalidate_model_toolpaths(app);
                                     }
-                                    setup.axis = crate::workspace::setup::WorkAxis::ZUp;
-                                    setup.stock_origin_mm[2] = bounds[0][2] as f64;
-                                    setup.stock_size_mm[2] =
-                                        (bounds[1][2] - bounds[0][2]) as f64 + 5.0;
-                                    project_changed = true;
                                 }
                                 ui.label(
-                                    "Adjusts stock bounds only; model coordinates stay unchanged.",
+                                    "Keeps stock size fixed and scales the model proportionally.",
                                 );
                                 ui.add_space(6.0);
                             }
@@ -748,6 +752,164 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
         app.ui_state.project_dirty = true;
         app.scene_sig.clear();
     }
+    if request_model_fit {
+        let model_index = app
+            .ui_state
+            .selected_model
+            .filter(|index| {
+                app.project
+                    .models
+                    .get(*index)
+                    .is_some_and(|model| model.visible)
+            })
+            .or_else(|| app.project.models.iter().position(|model| model.visible));
+        if let Some(index) = model_index {
+            app.ui_state.fit_model_rotation_deg = app.project.models[index]
+                .transform
+                .rotation_degrees
+                .map(|angle| angle.round() as i16);
+        }
+        app.ui_state.show_fit_model_dialog = true;
+    }
+    show_fit_model_dialog(ctx, app);
+}
+
+fn show_fit_model_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
+    if !app.ui_state.show_fit_model_dialog {
+        return;
+    }
+    let model_index = app
+        .ui_state
+        .selected_model
+        .filter(|index| {
+            app.project
+                .models
+                .get(*index)
+                .is_some_and(|model| model.visible)
+        })
+        .or_else(|| app.project.models.iter().position(|model| model.visible));
+    let Some(model_index) = model_index else {
+        app.ui_state.show_fit_model_dialog = false;
+        return;
+    };
+    let tool_clearance = app
+        .project
+        .operations
+        .iter()
+        .map(|operation| operation.tool.diameter_mm * 0.5 + operation.tool.holder_clearance_mm)
+        .fold(
+            app.project.default_tool.diameter_mm * 0.5
+                + app.project.default_tool.holder_clearance_mm,
+            f64::max,
+        );
+    let rotation_degrees = app.ui_state.fit_model_rotation_deg.map(f64::from);
+    let preview = app.project.models[model_index].fit_to_stock(
+        &app.project.setup,
+        tool_clearance,
+        rotation_degrees,
+    );
+    let mut open = true;
+    let mut apply = false;
+    let mut cancel = false;
+    egui::Window::new("Fit model to stock")
+        .id(egui::Id::new("fit_model_to_stock_dialog"))
+        .collapsible(false)
+        .resizable(false)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.label("The stock dimensions will stay unchanged.");
+            ui.horizontal(|ui| {
+                ui.label("Orientation");
+                for (axis, label) in ["X", "Y", "Z"].into_iter().enumerate() {
+                    egui::ComboBox::from_id_salt(("fit_model_rotation", axis))
+                        .selected_text(format!(
+                            "{label} {}°",
+                            app.ui_state.fit_model_rotation_deg[axis]
+                        ))
+                        .show_ui(ui, |ui| {
+                            for angle in [-180, -90, 0, 90, 180] {
+                                ui.selectable_value(
+                                    &mut app.ui_state.fit_model_rotation_deg[axis],
+                                    angle,
+                                    format!("{angle}°"),
+                                );
+                            }
+                        });
+                }
+            });
+            match &preview {
+                Ok(fit) => {
+                    let size = std::array::from_fn::<_, 3, _>(|axis| {
+                        fit.bounds[1][axis] as f64 - fit.bounds[0][axis] as f64
+                    });
+                    ui.label(format!("Uniform scale: {:.4}×", fit.scale));
+                    ui.label(format!(
+                        "Rotation: X {:.0}° · Y {:.0}° · Z {:.0}°",
+                        fit.rotation_degrees[0], fit.rotation_degrees[1], fit.rotation_degrees[2]
+                    ));
+                    ui.label(format!(
+                        "Resulting model: {:.2} × {:.2} × {:.2} mm",
+                        size[0], size[1], size[2]
+                    ));
+                    ui.label(format!(
+                        "XY tool clearance: {:.2} mm · Z margin: {:.2} mm",
+                        fit.xy_margin_mm, fit.z_margin_mm
+                    ));
+                    ui.label("Centered in XY; model top aligned to the stock top face.");
+                }
+                Err(error) => {
+                    ui.colored_label(egui::Color32::from_rgb(220, 80, 80), error);
+                }
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(preview.is_ok(), egui::Button::new("Apply fit"))
+                    .clicked()
+                {
+                    apply = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+    if cancel {
+        open = false;
+    }
+    app.ui_state.show_fit_model_dialog = open;
+    if apply {
+        if let Ok(fit) = preview {
+            app.project.models[model_index].transform = crate::workspace::model::ModelTransform {
+                scale: fit.scale,
+                rotation_degrees: fit.rotation_degrees,
+                translation_mm: fit.translation_mm,
+            };
+            invalidate_model_toolpaths(app);
+            app.ui_state.project_dirty = true;
+            app.ui_state.request_fit = true;
+            app.scene_sig.clear();
+            app.ui_state.show_fit_model_dialog = false;
+        }
+    }
+}
+
+fn invalidate_model_toolpaths(app: &mut TekkCamApp) {
+    for operation in &mut app.project.operations {
+        if matches!(
+            operation.kind,
+            crate::cam::operations::OperationKind::ModelProfile2D
+                | crate::cam::operations::OperationKind::Roughing3D
+                | crate::cam::operations::OperationKind::FinishRaster3D
+                | crate::cam::operations::OperationKind::FinishContour3D
+                | crate::cam::operations::OperationKind::FinishWaterline3D
+        ) {
+            operation.generated = false;
+            operation.toolpath = Default::default();
+        }
+    }
+    app.ui_state.gcode_text.clear();
+    app.ui_state.simulation_moves.clear();
 }
 
 pub fn show_tool_database_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
