@@ -280,6 +280,11 @@ pub struct UiState {
     pub show_tool_database: bool,
     pub show_stock_dialog: bool,
     pub show_work_dialog: bool,
+    pub show_probing_dialog: bool,
+    pub probing_motion_confirmed: bool,
+    pub last_probe_result: Option<([f64; 3], bool)>,
+    pub active_probe_settings: Option<crate::workspace::probing::ProbeSettings>,
+    pub probe_capture_points: Vec<[f64; 3]>,
     pub tool_details: Option<crate::cam::tool::Tool>,
     pub tool_image_cache: std::collections::HashMap<String, Option<egui::TextureHandle>>,
     pub show_fit_model_dialog: bool,
@@ -359,6 +364,11 @@ impl Default for UiState {
             show_tool_database: false,
             show_stock_dialog: false,
             show_work_dialog: false,
+            show_probing_dialog: false,
+            probing_motion_confirmed: false,
+            last_probe_result: None,
+            active_probe_settings: None,
+            probe_capture_points: Vec::new(),
             tool_details: None,
             tool_image_cache: std::collections::HashMap::new(),
             show_fit_model_dialog: false,
@@ -648,11 +658,45 @@ impl TekkCamApp {
                 crate::machine::controller::MachineEvent::Log(line) => {
                     if line.starts_with("← error:") || line.starts_with("← ALARM:") {
                         self.ui_state.job_progress = None;
+                        if self.ui_state.active_probe_settings.take().is_some() {
+                            self.ui_state.probe_capture_points.clear();
+                            self.ui_state.status_message =
+                                "Probe map failed; partial results discarded".into();
+                        }
                     }
                     self.ui_state.console_log.push(line)
                 }
                 crate::machine::controller::MachineEvent::Status(status) => {
                     self.ui_state.machine_status = status;
+                }
+                crate::machine::controller::MachineEvent::ProbeResult { position, success } => {
+                    self.ui_state.last_probe_result = Some((position, success));
+                    if success {
+                        if let Some(settings) = &self.ui_state.active_probe_settings {
+                            if let Ok(grid) = settings.grid_points() {
+                                if let Some([x, y]) =
+                                    grid.get(self.ui_state.probe_capture_points.len())
+                                {
+                                    if let Some(offset) = self.ui_state.machine_status.work_offset {
+                                        self.ui_state.probe_capture_points.push([
+                                            *x,
+                                            *y,
+                                            position[2] - offset[2],
+                                        ]);
+                                    } else {
+                                        self.ui_state.console_log.push("✖ Probe result not captured: GRBL status did not provide the active work offset".into());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    self.ui_state.console_log.push(format!(
+                        "Probe {} at X {:.3} Y {:.3} Z {:.3} mm",
+                        if success { "triggered" } else { "failed" },
+                        position[0],
+                        position[1],
+                        position[2]
+                    ));
                 }
                 crate::machine::controller::MachineEvent::Progress { sent, total } => {
                     self.ui_state.job_progress = Some((sent, total));
@@ -663,6 +707,29 @@ impl TekkCamApp {
                 crate::machine::controller::MachineEvent::Finished => {
                     self.ui_state.job_progress = None;
                     self.ui_state.status_message = "Job complete".into();
+                    if let Some(settings) = self.ui_state.active_probe_settings.take() {
+                        let expected = settings
+                            .grid_points()
+                            .map(|points| points.len())
+                            .unwrap_or(usize::MAX);
+                        if self.ui_state.probe_capture_points.len() == expected {
+                            self.project.surface_map =
+                                Some(crate::workspace::probing::SurfaceMap {
+                                    settings,
+                                    points: std::mem::take(&mut self.ui_state.probe_capture_points),
+                                });
+                            self.ui_state.project_dirty = true;
+                            self.ui_state
+                                .console_log
+                                .push("✔ Surface probe map captured and saved in project".into());
+                        } else {
+                            self.ui_state.console_log.push(format!(
+                                "✖ Probe map incomplete: captured {} of {expected} points",
+                                self.ui_state.probe_capture_points.len()
+                            ));
+                            self.ui_state.probe_capture_points.clear();
+                        }
+                    }
                     self.ui_state
                         .console_log
                         .push("✔ Machine reports idle; job complete".into());
@@ -857,6 +924,21 @@ impl TekkCamApp {
             return;
         }
         let setup = self.project.setup.clone();
+        let surface_map = if self.project.surface_compensation_enabled {
+            match self.project.surface_map.clone() {
+                Some(map) => Some(map),
+                None => {
+                    self.ui_state.console_log.push(
+                        "✖ Surface compensation is enabled but no complete surface map is saved"
+                            .into(),
+                    );
+                    self.generation_pending = false;
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let plugins = self.plugin_registry.clone();
         let tx = self.generation_tx.clone();
         self.generation_pending = true;
@@ -864,7 +946,7 @@ impl TekkCamApp {
         std::thread::spawn(move || {
             let result = (|| {
                 let mut operation = operation;
-                let (path, label) = if is_profile {
+                let (mut path, label) = if is_profile {
                     let model = model.as_ref().expect("validated visible model");
                     let geometry = crate::cam::model_2d::selected_face_boundary(
                         model,
@@ -900,6 +982,9 @@ impl TekkCamApp {
                     )?;
                     (operation.toolpath, "CAM")
                 };
+                if let Some(map) = &surface_map {
+                    crate::workspace::probing::compensate_toolpath(&mut path, &setup, map)?;
+                }
                 let remaining = if is_roughing {
                     Some(crate::cam::roughing::estimate_remaining_stock(
                         model.as_ref().expect("validated model"),
@@ -1350,6 +1435,7 @@ impl eframe::App for TekkCamApp {
         properties::show_tool_editor(ctx, self);
         properties::show_tool_database_dialog(ctx, self);
         properties::show_setup_dialog(ctx, self);
+        properties::show_probing_dialog(ctx, self);
         properties::show_tool_details_dialog(ctx, self);
 
         // ── Central viewport ─────────────────────────────────────────────────

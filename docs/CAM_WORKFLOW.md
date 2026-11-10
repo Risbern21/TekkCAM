@@ -28,6 +28,14 @@ The optional preview is a 64 by 64 height field over the configured stock footpr
 
 The posts currently target the application's GRBL and LinuxCNC dialect choices. GRBL manual tool-change pauses require operator supervision. The optional travel check verifies programmed tool-center coordinates against user-entered bounds; it cannot validate controller configuration, physical homing, actual work offsets, machine state, spindle behavior, clamps, or emergency-stop hardware. Review the exported G-code and machine setup before running a job. Further path-check limitations are documented in [SAFETY.md](SAFETY.md).
 
+## Probing
+
+The toolbar's Probe dialog supports single-axis touch-off and rectangular 3D surface maps. A wired probe or touch plate and a correctly configured controller probe input are required. GRBL mode can run a confirmed single probe or grid through the serial connection and reads successful `[PRB:x,y,z:1]` reports. LinuxCNC mode exports standalone probing programs; after running them in LinuxCNC, import `probe-results.txt` to bring touch or grid results into the project. LinuxCNC programs use `PROBEOPEN`/`PROBECLOSE`; they are not streamed through tekkCAM's GRBL serial worker.
+
+For touch-off, choose the axis, direction, feed, maximum travel, and probe radius or touch-plate thickness. A successful result can be explicitly applied to the selected work origin. For surface mapping, set XY bounds and spacing; the region must fit inside configured stock and the estimated Z travel must fit configured machine limits. Review the displayed grid and confirm wiring, start position, clearance, and feed before running a GRBL grid. The saved map can be visualized and optionally used to compensate generated toolpaths with bilinear interpolation relative to the map's first point. Paths outside the measured map are rejected; the app does not silently extrapolate.
+
+Probe maps and settings are saved with the project. Probe motion and imported measurements are hardware/controller dependent; verify the generated program, probe polarity, work coordinate system, and safe travel before use. Surface compensation is an approximation of measured height variation and does not replace collision review or an air cut.
+
 ## Fusion-style 2D options
 
 Derived from a feature study of Fusion 360 CAM ([FUSION_CAM_EVIDENCE.md](FUSION_CAM_EVIDENCE.md)):

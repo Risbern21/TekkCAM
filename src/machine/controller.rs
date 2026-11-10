@@ -21,6 +21,7 @@ pub struct MachineStatus {
 pub enum MachineEvent {
     Log(String),
     Status(MachineStatus),
+    ProbeResult { position: [f64; 3], success: bool },
     Progress { sent: usize, total: usize },
     Finished,
     Disconnected(String),
@@ -261,6 +262,8 @@ fn run_worker(
                             awaiting_idle = false;
                             let _ =
                                 events.send(MachineEvent::Log(format!("← {line}; stream stopped")));
+                        } else if let Some((position, success)) = parse_probe_result(&line) {
+                            let _ = events.send(MachineEvent::ProbeResult { position, success });
                         } else if let Some(status) = parse_status(&line) {
                             if awaiting_idle && status.state.starts_with("Idle") {
                                 awaiting_idle = false;
@@ -289,6 +292,18 @@ fn run_worker(
             }
         }
     }
+}
+
+fn parse_probe_result(line: &str) -> Option<([f64; 3], bool)> {
+    let body = line.strip_prefix("[PRB:")?.strip_suffix(']')?;
+    let (coordinates, result) = body.rsplit_once(':')?;
+    let position = parse_triplet(coordinates)?;
+    let success = match result {
+        "1" => true,
+        "0" => false,
+        _ => return None,
+    };
+    Some((position, success))
 }
 
 fn write_line(port: &mut dyn serialport::SerialPort, line: &str) -> Result<(), String> {
@@ -339,4 +354,22 @@ fn parse_triplet(value: &str) -> Option<[f64; 3]> {
         values.next()?.ok()?,
         values.next()?.ok()?,
     ])
+}
+
+#[cfg(test)]
+mod probing_tests {
+    use super::parse_probe_result;
+
+    #[test]
+    fn parses_grbl_probe_position_and_trigger_status() {
+        assert_eq!(
+            parse_probe_result("[PRB:1.0,-2.5,3.25:1]"),
+            Some(([1.0, -2.5, 3.25], true))
+        );
+        assert_eq!(
+            parse_probe_result("[PRB:1,2,3:0]"),
+            Some(([1.0, 2.0, 3.0], false))
+        );
+        assert_eq!(parse_probe_result("[PRB:1,2:1]"), None);
+    }
 }

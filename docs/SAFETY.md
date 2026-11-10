@@ -9,3 +9,9 @@ These checks can miss collisions between samples, depend on STEP tessellation qu
 The optional stock-removal display is a 64 by 64 sampled height-field estimate, not a solid stock simulation. It approximates cutter sweeps from generated paths and omits walls, fixtures, and material behavior. See [CAM_WORKFLOW.md](CAM_WORKFLOW.md) for its resolution and workflow.
 
 Roughing and finishing make disconnected cuts with retracts to the configured clearance height. When the run is long enough, entry and exit ramps use the configured ramp angle; short runs retain a direct plunge/retract. Stepdown and stepover remain bounded by the project setup.
+
+## Probing
+
+Probing commands move the physical machine. Confirm the probe is wired and configured, the input is not already triggered, the selected direction is correct, the starting position is clear, and the maximum travel and feed are safe. GRBL probing uses G38.2 and expects a valid probe-result report; an unsuccessful trigger aborts the map and partial data is discarded. LinuxCNC programs are exported for the operator to run in LinuxCNC, and recorded results must be imported and reviewed. tekkCAM does not directly connect to LinuxCNC or independently verify probe wiring or polarity.
+
+Surface compensation uses bilinear interpolation between measured points relative to the first map point. It cannot represent features smaller than the sampling grid, and arcs are corrected at their endpoint rather than continuously subdivided. Review the compensated path, machine limits, and clearance, and perform an air cut before machining. A probe map is not a collision guarantee.

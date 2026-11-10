@@ -18,6 +18,12 @@ pub struct Project {
     #[serde(default)]
     pub setup: super::setup::MachiningSetup,
     #[serde(default)]
+    pub probing: super::probing::ProbeSettings,
+    #[serde(default)]
+    pub surface_map: Option<super::probing::SurfaceMap>,
+    #[serde(default)]
+    pub surface_compensation_enabled: bool,
+    #[serde(default)]
     pub post_dialect: crate::gcode::generator::Dialect,
     #[serde(default)]
     pub import_warnings: Vec<String>,

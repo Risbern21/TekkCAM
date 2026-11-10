@@ -401,6 +401,9 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 if ui.button("Work").clicked() {
                     app.ui_state.show_work_dialog = true;
                 }
+                if ui.button("Probe").clicked() {
+                    app.ui_state.show_probing_dialog = true;
+                }
                 ui.separator();
                 if ui
                     .add(
