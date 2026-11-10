@@ -65,6 +65,7 @@ pub struct TekkCamApp {
 struct AppPreferences {
     display_units: DisplayUnits,
     theme: AppTheme,
+    font_size: FontSizeOption,
     selected_machine_port: Option<String>,
     machine_baud_rate: u32,
 }
@@ -74,6 +75,7 @@ impl Default for AppPreferences {
         Self {
             display_units: DisplayUnits::Millimeters,
             theme: AppTheme::Dark,
+            font_size: FontSizeOption::Medium,
             selected_machine_port: None,
             machine_baud_rate: 115200,
         }
@@ -85,6 +87,37 @@ pub enum AppTheme {
     Light,
     #[default]
     Dark,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FontSizeOption {
+    Small,
+    #[default]
+    Medium,
+    Large,
+    ExtraLarge,
+}
+
+impl FontSizeOption {
+    fn scale(self) -> f32 {
+        match self {
+            Self::Small => 0.9,
+            Self::Medium => 1.0,
+            Self::Large => 1.1,
+            Self::ExtraLarge => 1.2,
+        }
+    }
+}
+
+pub(crate) fn apply_font_size(ctx: &egui::Context, font_size: FontSizeOption) {
+    let defaults = egui::Style::default();
+    let mut style = (*ctx.style()).clone();
+    for (text_style, font_id) in &mut style.text_styles {
+        if let Some(default_font) = defaults.text_styles.get(text_style) {
+            font_id.size = default_font.size * font_size.scale();
+        }
+    }
+    ctx.set_style(style);
 }
 
 pub(crate) fn apply_theme(ctx: &egui::Context, theme: AppTheme) {
@@ -247,6 +280,7 @@ pub struct UiState {
     pub show_tool_database: bool,
     pub show_fit_model_dialog: bool,
     pub fit_model_rotation_deg: [i16; 3],
+    pub fit_model_preview: Option<(usize, crate::workspace::model::ModelTransform)>,
     pub show_settings: bool,
     pub console_input: String,
     pub console_log: Vec<String>,
@@ -261,6 +295,7 @@ pub struct UiState {
     pub model_orbit: [f32; 2],
     pub display_units: DisplayUnits,
     pub theme: AppTheme,
+    pub font_size: FontSizeOption,
     pub project_dirty: bool,
     /// Set to frame all geometry on the next viewport pass
     pub request_fit: bool,
@@ -320,6 +355,7 @@ impl Default for UiState {
             show_tool_database: false,
             show_fit_model_dialog: false,
             fit_model_rotation_deg: [0; 3],
+            fit_model_preview: None,
             show_settings: false,
             console_input: String::new(),
             console_log: vec![
@@ -337,6 +373,7 @@ impl Default for UiState {
             model_orbit: [0.0, 0.0],
             display_units: DisplayUnits::default(),
             theme: AppTheme::Dark,
+            font_size: FontSizeOption::Medium,
             project_dirty: false,
             request_fit: false,
             viewport_size: egui::vec2(800.0, 600.0),
@@ -379,6 +416,7 @@ impl TekkCamApp {
 
         let preferences = AppPreferences::load();
         apply_theme(&cc.egui_ctx, preferences.theme);
+        apply_font_size(&cc.egui_ctx, preferences.font_size);
 
         // ── Register GPU resources for the wgpu viewport callback ─────────
         if let Some(wgpu_render_state) = cc.wgpu_render_state.as_ref() {
@@ -421,6 +459,7 @@ impl TekkCamApp {
         app.project_history.reset(&app.project);
         app.ui_state.display_units = app.preferences.display_units;
         app.ui_state.theme = app.preferences.theme;
+        app.ui_state.font_size = app.preferences.font_size;
         app.ui_state.selected_machine_port = app.preferences.selected_machine_port.clone();
         app.ui_state.machine_baud_rate = app.preferences.machine_baud_rate;
         app
@@ -429,6 +468,7 @@ impl TekkCamApp {
     pub fn save_preferences(&mut self) {
         self.preferences.display_units = self.ui_state.display_units;
         self.preferences.theme = self.ui_state.theme;
+        self.preferences.font_size = self.ui_state.font_size;
         self.preferences.selected_machine_port = self.ui_state.selected_machine_port.clone();
         self.preferences.machine_baud_rate = self.ui_state.machine_baud_rate;
         if let Err(error) = self.preferences.save() {
@@ -1335,6 +1375,7 @@ mod tests {
         let preferences = AppPreferences {
             display_units: DisplayUnits::Inches,
             theme: AppTheme::Light,
+            font_size: FontSizeOption::Large,
             selected_machine_port: Some("/dev/ttyUSB0".into()),
             machine_baud_rate: 230400,
         };
@@ -1342,6 +1383,7 @@ mod tests {
         let decoded: AppPreferences = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.display_units, DisplayUnits::Inches);
         assert_eq!(decoded.theme, AppTheme::Light);
+        assert_eq!(decoded.font_size, FontSizeOption::Large);
         assert_eq!(
             decoded.selected_machine_port.as_deref(),
             Some("/dev/ttyUSB0")

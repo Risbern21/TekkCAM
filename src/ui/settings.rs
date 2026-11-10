@@ -1,4 +1,4 @@
-use crate::app::{AppTheme, DisplayUnits, TekkCamApp};
+use crate::app::{AppTheme, DisplayUnits, FontSizeOption, TekkCamApp};
 use eframe::egui;
 
 pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
@@ -45,6 +45,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             ));
             ui.separator();
             ui.heading("Appearance");
+            ui.label("Theme");
             ui.horizontal(|ui| {
                 theme_changed |= ui
                     .selectable_value(&mut app.ui_state.theme, AppTheme::Light, "Light")
@@ -52,6 +53,20 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
                 theme_changed |= ui
                     .selectable_value(&mut app.ui_state.theme, AppTheme::Dark, "Dark")
                     .changed();
+            });
+            ui.add_space(4.0);
+            ui.label("Font size");
+            ui.horizontal(|ui| {
+                for (option, label) in [
+                    (FontSizeOption::Small, "Small"),
+                    (FontSizeOption::Medium, "Medium"),
+                    (FontSizeOption::Large, "Large"),
+                    (FontSizeOption::ExtraLarge, "Extra large"),
+                ] {
+                    preferences_changed |= ui
+                        .selectable_value(&mut app.ui_state.font_size, option, label)
+                        .changed();
+                }
             });
             ui.separator();
             ui.heading("Default tool");
@@ -135,6 +150,7 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
         preferences_changed = true;
     }
     if preferences_changed {
+        crate::app::apply_font_size(ctx, app.ui_state.font_size);
         app.save_preferences();
     }
 }

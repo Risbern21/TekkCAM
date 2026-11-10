@@ -215,7 +215,13 @@ fn project_action_button(
         egui::StrokeKind::Inside,
     );
 
-    let center = egui::pos2(rect.left() + 30.0, rect.center().y);
+    let label_font = egui::FontId::proportional(16.0);
+    let label_galley =
+        ui.painter()
+            .layout_no_wrap(label.to_owned(), label_font.clone(), visuals.text_color());
+    let group_width = 22.0 + 12.0 + label_galley.size().x;
+    let group_left = rect.center().x - group_width * 0.5;
+    let center = egui::pos2(group_left + 11.0, rect.center().y);
     let icon_stroke = egui::Stroke::new(2.0_f32, visuals.text_color());
     match icon {
         ProjectActionIcon::New => {
@@ -262,11 +268,12 @@ fn project_action_button(
             );
         }
     }
-    painter.text(
-        egui::pos2(rect.center().x + 12.0, rect.center().y),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(16.0),
+    painter.galley(
+        egui::pos2(
+            group_left + 22.0 + 12.0,
+            rect.center().y - label_galley.size().y * 0.5,
+        ),
+        label_galley,
         visuals.text_color(),
     );
     response
@@ -371,6 +378,21 @@ fn sync_scene(app: &mut TekkCamApp, orbit_preview: bool) {
     }
     sig.push((u64::MAX - 20, true, app.project.setup.axis as u64));
     sig.push((u64::MAX - 4, orbit_preview, 0));
+    if let Some((index, transform)) = app.ui_state.fit_model_preview {
+        sig.push((
+            u64::MAX - 30,
+            true,
+            index as u64 ^ transform.scale.to_bits(),
+        ));
+        for (axis, value) in transform
+            .rotation_degrees
+            .iter()
+            .chain(transform.translation_mm.iter())
+            .enumerate()
+        {
+            sig.push((u64::MAX - 31 - axis as u64, true, value.to_bits()));
+        }
+    }
     sig.push((
         u64::MAX - 1,
         true,
@@ -390,9 +412,15 @@ fn sync_scene(app: &mut TekkCamApp, orbit_preview: bool) {
     ));
     if sig != app.scene_sig {
         app.scene_revision += 1;
+        let mut models = app.project.models.clone();
+        if let Some((index, transform)) = app.ui_state.fit_model_preview {
+            if let Some(model) = models.get_mut(index) {
+                model.transform = transform;
+            }
+        }
         app.scene = Arc::new(Scene::build(
             &app.project.layers,
-            &app.project.models,
+            &models,
             &app.project.operations,
             app.scene_revision,
             app.ui_state.show_3d_view,

@@ -41,7 +41,9 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
 
             egui::ScrollArea::vertical()
                 .id_salt("properties_content")
+                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                 .show(ui, |ui| {
+                    ui.set_max_width((ui.available_width() - 8.0).max(0.0));
                     // ── Layer properties ──────────────────────────────────────────
                     if let Some(idx) = app.ui_state.selected_layer {
                         if idx < app.project.layers.len() {
@@ -790,6 +792,7 @@ fn show_fit_model_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
         .or_else(|| app.project.models.iter().position(|model| model.visible));
     let Some(model_index) = model_index else {
         app.ui_state.show_fit_model_dialog = false;
+        app.ui_state.fit_model_preview = None;
         return;
     };
     let tool_clearance = app
@@ -878,6 +881,20 @@ fn show_fit_model_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
         open = false;
     }
     app.ui_state.show_fit_model_dialog = open;
+    app.ui_state.fit_model_preview = if open && !apply {
+        preview.as_ref().ok().map(|fit| {
+            (
+                model_index,
+                crate::workspace::model::ModelTransform {
+                    scale: fit.scale,
+                    rotation_degrees: fit.rotation_degrees,
+                    translation_mm: fit.translation_mm,
+                },
+            )
+        })
+    } else {
+        None
+    };
     if apply {
         if let Ok(fit) = preview {
             app.project.models[model_index].transform = crate::workspace::model::ModelTransform {
@@ -890,6 +907,7 @@ fn show_fit_model_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
             app.ui_state.request_fit = true;
             app.scene_sig.clear();
             app.ui_state.show_fit_model_dialog = false;
+            app.ui_state.fit_model_preview = None;
         }
     }
 }
