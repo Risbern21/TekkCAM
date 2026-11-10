@@ -455,9 +455,30 @@ impl TekkCamApp {
 
     pub fn has_active_project(&self) -> bool {
         self.project_path.is_some()
+            || !self.project.name.is_empty()
             || !self.project.layers.is_empty()
             || !self.project.models.is_empty()
             || !self.project.operations.is_empty()
+    }
+
+    pub fn create_new_project(&mut self) {
+        let mut project = Project {
+            name: "Untitled".into(),
+            ..Project::default()
+        };
+        project.tools = load_tool_database();
+        self.project = project;
+        self.project_path = None;
+        self.project_history.reset(&self.project);
+        self.scene_sig.clear();
+        self.ui_state.selected_layer = None;
+        self.ui_state.selected_model = None;
+        self.ui_state.selected_operation = None;
+        self.ui_state.project_dirty = false;
+        self.ui_state.request_fit = true;
+        self.ui_state.gcode_text.clear();
+        self.ui_state.simulation_moves.clear();
+        self.ui_state.status_message = "New project".into();
     }
 
     pub fn add_operation(&mut self, mut operation: crate::cam::operations::Operation) {

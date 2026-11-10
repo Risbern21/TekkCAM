@@ -16,6 +16,11 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             let rect = ui.available_rect_before_wrap();
             app.ui_state.viewport_size = rect.size();
 
+            if !app.has_active_project() {
+                show_project_welcome(ui, app, rect);
+                return;
+            }
+
             // Apply orbit input first so the scene builder can use its bounded
             // preview mesh while a right-button drag is active.
             let orbit_preview = handle_camera_input(ui, app, rect);
@@ -106,6 +111,165 @@ pub fn show(ctx: &egui::Context, app: &mut TekkCamApp) {
             );
             ui.painter().add(callback);
         });
+}
+
+fn show_project_welcome(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rect) {
+    let dark = app.ui_state.theme == crate::app::AppTheme::Dark;
+    let panel = if dark {
+        egui::Color32::from_rgb(20, 21, 29)
+    } else {
+        egui::Color32::from_rgb(242, 243, 249)
+    };
+    let border = if dark {
+        egui::Color32::from_rgb(48, 50, 64)
+    } else {
+        egui::Color32::from_rgb(211, 213, 226)
+    };
+    let muted = if dark {
+        egui::Color32::from_rgb(153, 158, 177)
+    } else {
+        egui::Color32::from_rgb(103, 107, 128)
+    };
+    let heading = if dark {
+        egui::Color32::from_rgb(235, 237, 245)
+    } else {
+        egui::Color32::from_rgb(37, 39, 53)
+    };
+    let width = rect.width().min(700.0).max(320.0);
+    let height = 250.0_f32.min(rect.height().max(280.0));
+    let card_rect = egui::Rect::from_center_size(rect.center(), egui::vec2(width, height));
+
+    ui.allocate_new_ui(egui::UiBuilder::new().max_rect(card_rect), |ui| {
+        egui::Frame::new()
+            .fill(panel)
+            .stroke(egui::Stroke::new(1.0_f32, border))
+            .corner_radius(egui::CornerRadius::same(14))
+            .inner_margin(egui::Margin::same(30))
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing.y = 4.0;
+                ui.vertical_centered(|ui| {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("Start a project")
+                            .size(30.0)
+                            .strong()
+                            .color(heading),
+                    );
+                    ui.add_space(8.0);
+                    ui.label(
+                        egui::RichText::new("Open a tekkCAM project or create a new workspace.")
+                            .size(15.0)
+                            .color(muted),
+                    );
+
+                    let button_width = ((ui.available_width() - 14.0) * 0.5).max(120.0);
+                    ui.horizontal_centered(|ui| {
+                        if project_action_button(
+                            ui,
+                            [button_width, 68.0],
+                            "New project",
+                            ProjectActionIcon::New,
+                        )
+                        .clicked()
+                        {
+                            app.create_new_project();
+                        }
+                        ui.add_space(14.0);
+                        if project_action_button(
+                            ui,
+                            [button_width, 68.0],
+                            "Open project…",
+                            ProjectActionIcon::Open,
+                        )
+                        .clicked()
+                        {
+                            app.request_project_open_dialog(ui.ctx());
+                        }
+                    });
+                });
+            });
+    });
+}
+
+#[derive(Clone, Copy)]
+enum ProjectActionIcon {
+    New,
+    Open,
+}
+
+fn project_action_button(
+    ui: &mut egui::Ui,
+    size: [f32; 2],
+    label: &str,
+    icon: ProjectActionIcon,
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(size[0], size[1]), egui::Sense::click());
+    let visuals = ui.style().interact(&response);
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, egui::CornerRadius::same(9), visuals.bg_fill);
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(9),
+        visuals.bg_stroke,
+        egui::StrokeKind::Inside,
+    );
+
+    let center = egui::pos2(rect.left() + 30.0, rect.center().y);
+    let icon_stroke = egui::Stroke::new(2.0_f32, visuals.text_color());
+    match icon {
+        ProjectActionIcon::New => {
+            painter.circle_stroke(center, 10.0, icon_stroke);
+            painter.line_segment(
+                [center - egui::vec2(5.0, 0.0), center + egui::vec2(5.0, 0.0)],
+                icon_stroke,
+            );
+            painter.line_segment(
+                [center - egui::vec2(0.0, 5.0), center + egui::vec2(0.0, 5.0)],
+                icon_stroke,
+            );
+        }
+        ProjectActionIcon::Open => {
+            let folder = [
+                egui::pos2(center.x - 11.0, center.y - 7.0),
+                egui::pos2(center.x - 3.0, center.y - 7.0),
+                egui::pos2(center.x, center.y - 4.0),
+                egui::pos2(center.x + 10.0, center.y - 4.0),
+                egui::pos2(center.x + 8.0, center.y + 8.0),
+                egui::pos2(center.x - 11.0, center.y + 8.0),
+            ];
+            painter.add(egui::Shape::closed_line(folder.to_vec(), icon_stroke));
+            painter.line_segment(
+                [
+                    egui::pos2(center.x - 6.0, center.y),
+                    egui::pos2(center.x + 5.0, center.y),
+                ],
+                icon_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + 1.0, center.y - 4.0),
+                    egui::pos2(center.x + 5.0, center.y),
+                ],
+                icon_stroke,
+            );
+            painter.line_segment(
+                [
+                    egui::pos2(center.x + 1.0, center.y + 4.0),
+                    egui::pos2(center.x + 5.0, center.y),
+                ],
+                icon_stroke,
+            );
+        }
+    }
+    painter.text(
+        egui::pos2(rect.center().x + 12.0, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::proportional(16.0),
+        visuals.text_color(),
+    );
+    response
 }
 
 fn show_zoom_controls(ctx: &egui::Context, app: &mut TekkCamApp, rect: egui::Rect) {
