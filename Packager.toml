@@ -1,3 +1,5 @@
+name = "tekkcam"
+enabled = true
 product-name = "TekkCAM"
 version = "0.1.4"
 identifier = "com.risbern.tekkcam"
