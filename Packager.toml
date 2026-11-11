@@ -21,8 +21,8 @@ main = true
 path = "tekkcam"
 
 [linux]
-generate-desktop-entry = true
+generateDesktopEntry = true
 
 [nsis]
-install-mode = "currentUser"
+installMode = "currentUser"
 installer-icon = "assets/icon.ico"
