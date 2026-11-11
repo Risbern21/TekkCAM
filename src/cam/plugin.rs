@@ -4,7 +4,7 @@ use crate::{
 };
 use std::{collections::HashMap, sync::Arc};
 
-/// Extension point for CAM operations compiled into or linked with tekkCAM.
+/// Extension point for CAM operations compiled into or linked with TekkCAM.
 pub trait CamOperationPlugin: Send + Sync {
     fn id(&self) -> &str;
     fn name(&self) -> &str;

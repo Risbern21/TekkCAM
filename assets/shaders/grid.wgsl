@@ -1,4 +1,4 @@
-// grid.wgsl — Infinite grid for the tekkCAM viewport
+// grid.wgsl — Infinite grid for the TekkCAM viewport
 // Renders a full-screen quad using a built-in vertex trick (no vertex buffer).
 // Grid lines are drawn analytically in the fragment shader.
 

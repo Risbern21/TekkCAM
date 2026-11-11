@@ -1,0 +1,26 @@
+product-name = "TekkCAM"
+version = "0.1.4"
+identifier = "com.risbern.tekkcam"
+publisher = "Risbern"
+authors = ["TekkCAM"]
+description = "Desktop CNC CAM application"
+category = "GraphicsAndDesign"
+homepage = "https://github.com/Risbern21/TekkCAM"
+license-file = "LICENSE"
+icons = ["assets/icon.*"]
+out-dir = "dist"
+binaries-dir = "target/release"
+
+[[binaries]]
+path = "tekkcam-gui"
+main = true
+
+[[binaries]]
+path = "tekkcam"
+
+[linux]
+generate-desktop-entry = true
+
+[nsis]
+install-mode = "currentUser"
+installer-icon = "assets/icon.ico"

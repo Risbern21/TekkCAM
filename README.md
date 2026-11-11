@@ -1,6 +1,6 @@
-# tekkCAM
+# TekkCAM
 
-tekkCAM is a Rust desktop CAM application for preparing CNC work from 2D design files and STEP models. It imports Gerber, Excellon, DXF, SVG, and STEP data; displays geometry and toolpaths; creates 2D and 3-axis operations; simulates paths; and exports G-code. The desktop application also includes serial machine controls.
+TekkCAM is a Rust desktop CAM application for preparing CNC work from 2D design files and STEP models. It imports Gerber, Excellon, DXF, SVG, and STEP data; displays geometry and toolpaths; creates 2D and 3-axis operations; simulates paths; and exports G-code. The desktop application also includes serial machine controls.
 
 The repository builds two executables:
 
@@ -62,6 +62,10 @@ Run the CLI help with:
 ```
 
 See [docs/CLI.md](docs/CLI.md) for CLI workflows and JSON output details.
+
+## Installers
+
+Tagged releases produce Windows, macOS, and Linux installers. See [docs/INSTALLATION.md](docs/INSTALLATION.md) for download formats, Linux serial-port permissions, local packaging commands, and release signing requirements.
 
 ## Development checks
 

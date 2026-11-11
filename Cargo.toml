@@ -1,9 +1,9 @@
 [package]
 name = "tekkcam"
-version = "0.1.1"
+version = "0.1.4"
 edition = "2021"
 description = "Desktop CNC CAM application"
-authors = ["tekkCAM"]
+authors = ["TekkCAM"]
 
 [[bin]]
 name = "tekkcam-gui"

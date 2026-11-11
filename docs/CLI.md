@@ -1,4 +1,4 @@
-# tekkcam CLI
+# TekkCAM CLI
 
 The `tekkcam` binary runs project and CAM workflows without opening the GUI. It is offline: it does not enumerate, connect to, or send commands to machine controllers. The desktop application is built as `tekkcam-gui`.
 

@@ -1,9 +1,9 @@
-# Fusion 360 CAM: evidence and tekkCAM feature mapping
+# Fusion 360 CAM: evidence and TekkCAM feature mapping
 
 This note records what was observed in a locally installed Autodesk Fusion 360
-build, how it was observed, and which tekkCAM features were derived from it.
+build, how it was observed, and which TekkCAM features were derived from it.
 It is a feature-level study. **No Fusion code was decompiled, copied or ported.**
-tekkCAM's algorithms are independent implementations written from the observable
+TekkCAM's algorithms are independent implementations written from the observable
 parameter names and documented behaviour below.
 
 Install inspected: `%LOCALAPPDATA%\Autodesk\webdeploy\production\39e8a3d5e919c70b05ef3ebfe9c6bfc8d9ee001e`
@@ -43,7 +43,7 @@ of this evidence; export names show structure, not algorithms.
 - **Hole making:** Drilling (drill, tap, counterbore, countersink, ...)
 - **Other:** Jet2D, Turning*, probing/inspection
 
-tekkCAM already covers a subset (Pocket, Contour, Drill, Roughing, Parallel,
+TekkCAM already covers a subset (Pocket, Contour, Drill, Roughing, Parallel,
 Contour and Waterline finishing). Not covered: Face, Chamfer2D, Slot, Bore/Circular,
 Thread, Pencil, Scallop, Spiral/Radial, Rest, Adaptive.
 
@@ -81,9 +81,9 @@ tool-library managers (`PostEditor`, `PostEditSession`, `ToolLibraries`).
 mill-turn), tool and holder libraries as JSON, hole-making templates
 (spot-drill + drill + ream / tap / counterbore), and a setup-sheet template.
 
-## Mapping to tekkCAM
+## Mapping to TekkCAM
 
-| Fusion capability (evidence) | tekkCAM status before | Change in this branch |
+| Fusion capability (evidence) | TekkCAM status before | Change in this branch |
 |---|---|---|
 | `chainingTolerance`: open/closed contours chained from edges | Contour treated each edge independently (retract between every segment) | `cam::chain` links edges into polylines within a tolerance; contour/profile cuts continuous chains with mitred joins |
 | `doRamp` / `rampAngle` | vertical plunge only | `ramp_angle_deg` on operations; ramps down along the chain |

@@ -157,7 +157,7 @@ fn show_project_welcome(ui: &mut egui::Ui, app: &mut TekkCamApp, rect: egui::Rec
                     );
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("Open a tekkCAM project or create a new workspace.")
+                        egui::RichText::new("Open a TekkCAM project or create a new workspace.")
                             .size(15.0)
                             .color(muted),
                     );

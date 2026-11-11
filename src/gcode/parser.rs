@@ -1,6 +1,6 @@
 use crate::cam::toolpath::ToolMove;
 
-/// Parse the modal motion subset emitted by tekkCAM and commonly used in GRBL files.
+/// Parse the modal motion subset emitted by TekkCAM and commonly used in GRBL files.
 /// Coordinates are returned in millimeters and absolute machine-independent XY positions.
 pub fn parse(text: &str) -> Result<Vec<ToolMove>, String> {
     let mut moves = Vec::new();

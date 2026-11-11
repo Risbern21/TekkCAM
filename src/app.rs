@@ -377,7 +377,7 @@ impl Default for UiState {
             show_settings: false,
             console_input: String::new(),
             console_log: vec![
-                "tekkCAM v0.1.1 — ready.".into(),
+                format!("TekkCAM v{} — ready.", env!("CARGO_PKG_VERSION")),
                 "Load a Gerber / DXF / SVG file to begin.".into(),
             ],
             status_message: "Ready".into(),
@@ -1116,8 +1116,8 @@ impl TekkCamApp {
         self.ui_state.dialog_pending = true;
         self.ui_state.status_message = "Opening project dialog…".into();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Open tekkCAM project")
-            .add_filter("tekkCAM project", &["tkc", "tekkCAM", "json"])
+            .set_title("Open TekkCAM project")
+            .add_filter("TekkCAM project", &["tkc", "TekkCAM", "json"])
             .pick_file();
         std::thread::spawn(move || {
             let path = pollster::block_on(dialog).map(|handle| handle.path().to_path_buf());
@@ -1147,9 +1147,9 @@ impl TekkCamApp {
         self.ui_state.dialog_pending = true;
         self.ui_state.status_message = "Opening project save dialog…".into();
         let dialog = rfd::AsyncFileDialog::new()
-            .set_title("Save tekkCAM project")
+            .set_title("Save TekkCAM project")
             .set_file_name("project.tkc")
-            .add_filter("tekkCAM project", &["tkc"])
+            .add_filter("TekkCAM project", &["tkc"])
             .save_file();
         let project = match serde_json::to_string_pretty(&self.project) {
             Ok(serialized) => serialized,

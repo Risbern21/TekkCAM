@@ -10,7 +10,7 @@ fn main() -> anyhow::Result<()> {
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("tekkCAM")
+            .with_title("TekkCAM")
             .with_inner_size([1400.0, 900.0])
             .with_min_inner_size([900.0, 600.0])
             .with_icon(
@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     eframe::run_native(
-        "tekkCAM",
+        "TekkCAM",
         native_options,
         Box::new(|cc| Ok(Box::new(tekkcam::app::TekkCamApp::new(cc)))),
     )

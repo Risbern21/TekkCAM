@@ -234,7 +234,7 @@ pub fn linuxcnc_surface_program(settings: &ProbeSettings) -> Result<String, Stri
     let points = settings.grid_points()?;
     let safe_z = settings.max_travel_mm + settings.retract_mm;
     let mut out = vec![
-        "( tekkCAM surface probe map )".to_owned(),
+        "( TekkCAM surface probe map )".to_owned(),
         "G21 G90 G94".into(),
         "G17".into(),
         "M5".into(),
@@ -276,7 +276,7 @@ pub fn linuxcnc_touch_program(
         .last()
         .and_then(|c| c.to_digit(10))
         .unwrap_or(1);
-    Ok(format!("( tekkCAM guided touch-off )\nG21 G90 G94\nM5\nPROBEOPEN probe-results.txt\nG91 G38.2 {axis}{:.3} F{:.3}\nG0 {axis}{:.3}\nG90\nG10 L20 P{p} {axis}{coordinate:.3}\nPROBECLOSE\nM2\n", direction * settings.max_travel_mm, settings.feed_mm_min, -direction * settings.retract_mm))
+    Ok(format!("( TekkCAM guided touch-off )\nG21 G90 G94\nM5\nPROBEOPEN probe-results.txt\nG91 G38.2 {axis}{:.3} F{:.3}\nG0 {axis}{:.3}\nG90\nG10 L20 P{p} {axis}{coordinate:.3}\nPROBECLOSE\nM2\n", direction * settings.max_travel_mm, settings.feed_mm_min, -direction * settings.retract_mm))
 }
 
 #[cfg(test)]

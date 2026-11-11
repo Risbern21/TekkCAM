@@ -1,6 +1,6 @@
 # CAM operation plugins
 
-tekkCAM exposes an in-process Rust extension point for custom CAM operations. A plugin implements `CamOperationPlugin`, receives parsed geometry, the selected tool, and serialized numeric parameters, then returns a `Toolpath` or an error.
+TekkCAM exposes an in-process Rust extension point for custom CAM operations. A plugin implements `CamOperationPlugin`, receives parsed geometry, the selected tool, and serialized numeric parameters, then returns a `Toolpath` or an error.
 
 ```rust,ignore
 impl CamOperationPlugin for MyOperation {
