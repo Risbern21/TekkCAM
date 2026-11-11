@@ -995,155 +995,447 @@ pub fn show_probing_dialog(ctx: &egui::Context, app: &mut TekkCamApp) {
         .open(&mut open)
         .show(ctx, |ui| {
             let settings = &mut app.project.probing;
-            ui.label("Use a wired touch probe or touch plate. Confirm probe wiring, travel clearance, and the active work coordinate system before motion.");
-            ui.separator();
-            egui::ComboBox::from_id_salt("probe_touch_axis")
-                .selected_text(format!("{:?} axis", settings.touch_axis))
-                .show_ui(ui, |ui| for axis in [ProbeAxis::X, ProbeAxis::Y, ProbeAxis::Z] { ui.selectable_value(&mut settings.touch_axis, axis, format!("{:?}", axis)); });
-            ui.checkbox(&mut settings.touch_negative, "Probe in negative axis direction");
-            ui.add(egui::Slider::new(&mut settings.feed_mm_min, 1.0..=500.0).text("Probe feed (mm/min)"));
-            ui.add(egui::Slider::new(&mut settings.max_travel_mm, 0.1..=200.0).text("Maximum travel (mm)"));
-            ui.add(egui::Slider::new(&mut settings.retract_mm, 0.1..=20.0).text("Retract (mm)"));
-            if settings.touch_axis == ProbeAxis::Z {
-                ui.add(egui::DragValue::new(&mut settings.touch_plate_thickness_mm).speed(0.1).prefix("Touch plate thickness (mm): "));
-            } else {
-                ui.add(egui::DragValue::new(&mut settings.probe_radius_mm).speed(0.1).prefix("Probe radius (mm): "));
-            }
+            ui.label("Touch-off");
+            ui.horizontal(|ui| {
+                egui::ComboBox::from_id_salt("probe_touch_axis")
+                    .selected_text(format!("{:?} axis", settings.touch_axis))
+                    .show_ui(ui, |ui| {
+                        for axis in [ProbeAxis::X, ProbeAxis::Y, ProbeAxis::Z] {
+                            ui.selectable_value(
+                                &mut settings.touch_axis,
+                                axis,
+                                format!("{:?}", axis),
+                            );
+                        }
+                    });
+                ui.selectable_value(&mut settings.touch_negative, true, "− direction");
+                ui.selectable_value(&mut settings.touch_negative, false, "+ direction");
+            });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut settings.feed_mm_min)
+                        .speed(5.0)
+                        .range(1.0..=500.0)
+                        .prefix("Feed ")
+                        .suffix(" mm/min"),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut settings.max_travel_mm)
+                        .speed(0.5)
+                        .range(0.1..=200.0)
+                        .prefix("Travel ")
+                        .suffix(" mm"),
+                );
+            });
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut settings.retract_mm)
+                        .speed(0.1)
+                        .range(0.1..=20.0)
+                        .prefix("Retract ")
+                        .suffix(" mm"),
+                );
+                if settings.touch_axis == ProbeAxis::Z {
+                    ui.add(
+                        egui::DragValue::new(&mut settings.touch_plate_thickness_mm)
+                            .speed(0.1)
+                            .prefix("Plate ")
+                            .suffix(" mm"),
+                    );
+                } else {
+                    ui.add(
+                        egui::DragValue::new(&mut settings.probe_radius_mm)
+                            .speed(0.1)
+                            .prefix("Radius ")
+                            .suffix(" mm"),
+                    );
+                }
+            });
             let dialect = app.project.post_dialect;
-            let machine_ready = app.machine.is_some() && app.ui_state.machine_status.state.starts_with("Idle");
+            let machine_ready =
+                app.machine.is_some() && app.ui_state.machine_status.state.starts_with("Idle");
             let grid_validation = validate_probe_grid(settings, &app.project.setup);
-            ui.checkbox(&mut app.ui_state.probing_motion_confirmed, "I verified probe wiring, starting position, travel clearance, and feed");
             ui.horizontal(|ui| {
                 if dialect == crate::gcode::generator::Dialect::Grbl {
-                    if ui.add_enabled(machine_ready && app.ui_state.probing_motion_confirmed, egui::Button::new("Probe once (GRBL)" )).clicked() {
-                        let direction = if settings.touch_negative { -1.0 } else { 1.0 };
-                        match settings.validate().and_then(|_| grbl_probe_command(settings.touch_axis, direction * settings.max_travel_mm, settings.feed_mm_min)) {
-                            Ok(command) => {
-                                if let Some(machine) = &app.machine { machine.send_line(command); }
-                                app.ui_state.last_probe_result = None;
-                                app.ui_state.probing_motion_confirmed = false;
-                                app.ui_state.status_message = "Probing; machine motion active".into();
-                            }
-                            Err(e) => error = Some(e),
-                        }
+                    if ui
+                        .add_enabled(machine_ready, egui::Button::new("Probe once…"))
+                        .clicked()
+                    {
+                        app.ui_state.pending_probe_confirmation = Some(false);
                     }
                 } else if ui.button("Export touch-off program…").clicked() {
                     match linuxcnc_touch_program(settings, app.project.setup.work_offset) {
-                        Ok(program) => if let Some(path) = rfd::FileDialog::new().set_file_name("tekkcam-touch-off.ngc").save_file() { if let Err(e) = std::fs::write(path, program) { error = Some(e.to_string()); } },
+                        Ok(program) => {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("tekkcam-touch-off.ngc")
+                                .save_file()
+                            {
+                                if let Err(e) = std::fs::write(path, program) {
+                                    error = Some(e.to_string());
+                                }
+                            }
+                        }
                         Err(e) => error = Some(e),
                     }
                 }
                 if ui.button("Export LinuxCNC grid program…").clicked() {
-                    match grid_validation.clone().and_then(|_| linuxcnc_surface_program(settings)) {
-                        Ok(program) => if let Some(path) = rfd::FileDialog::new().set_file_name("tekkcam-surface-map.ngc").save_file() { if let Err(e) = std::fs::write(path, program) { error = Some(e.to_string()); } },
+                    match grid_validation
+                        .clone()
+                        .and_then(|_| linuxcnc_surface_program(settings))
+                    {
+                        Ok(program) => {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_file_name("tekkcam-surface-map.ngc")
+                                .save_file()
+                            {
+                                if let Err(e) = std::fs::write(path, program) {
+                                    error = Some(e.to_string());
+                                }
+                            }
+                        }
                         Err(e) => error = Some(e),
                     }
                 }
             });
-            if dialect == crate::gcode::generator::Dialect::LinuxCnc && ui.button("Import LinuxCNC touch result…").clicked() {
+            if dialect == crate::gcode::generator::Dialect::LinuxCnc
+                && ui.button("Import LinuxCNC touch result…").clicked()
+            {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     match std::fs::read_to_string(path) {
                         Ok(content) => {
                             let result = content.lines().find_map(|line| {
-                                let values: Vec<f64> = line.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).filter(|s| !s.is_empty()).filter_map(|s| s.parse().ok()).collect();
-                                (values.len() >= 3).then(|| ([values[0], values[1], values[2]], true))
+                                let values: Vec<f64> = line
+                                    .split(|c: char| {
+                                        !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')
+                                    })
+                                    .filter(|s| !s.is_empty())
+                                    .filter_map(|s| s.parse().ok())
+                                    .collect();
+                                (values.len() >= 3)
+                                    .then(|| ([values[0], values[1], values[2]], true))
                             });
-                            if let Some(result) = result { app.ui_state.last_probe_result = Some(result); } else { error = Some("No XYZ probe result was found in that file".into()); }
+                            if let Some(result) = result {
+                                app.ui_state.last_probe_result = Some(result);
+                            } else {
+                                error = Some("No XYZ probe result was found in that file".into());
+                            }
                         }
                         Err(e) => error = Some(e.to_string()),
                     }
                 }
             }
             if let Some((position, success)) = app.ui_state.last_probe_result {
-                ui.label(format!("Last probe: {} · X {:.3}, Y {:.3}, Z {:.3} mm", if success { "triggered" } else { "failed" }, position[0], position[1], position[2]));
-                if success && (dialect != crate::gcode::generator::Dialect::Grbl || machine_ready) && ui.button("Apply touch point to project work origin…").clicked() {
-                    let p = app.project.setup.work_offset.code().chars().last().and_then(|c| c.to_digit(10)).unwrap_or(4);
+                ui.label(format!(
+                    "Last probe: {} · X {:.3}, Y {:.3}, Z {:.3} mm",
+                    if success { "triggered" } else { "failed" },
+                    position[0],
+                    position[1],
+                    position[2]
+                ));
+                if success
+                    && (dialect != crate::gcode::generator::Dialect::Grbl || machine_ready)
+                    && ui
+                        .button("Apply touch point to project work origin…")
+                        .clicked()
+                {
+                    let p = app
+                        .project
+                        .setup
+                        .work_offset
+                        .code()
+                        .chars()
+                        .last()
+                        .and_then(|c| c.to_digit(10))
+                        .unwrap_or(4);
                     let axis = settings.touch_axis.letter();
-                    let coordinate = if axis == 'Z' { if settings.touch_negative { settings.touch_plate_thickness_mm } else { -settings.touch_plate_thickness_mm } } else if settings.touch_negative { settings.probe_radius_mm } else { -settings.probe_radius_mm };
+                    let coordinate = if axis == 'Z' {
+                        if settings.touch_negative {
+                            settings.touch_plate_thickness_mm
+                        } else {
+                            -settings.touch_plate_thickness_mm
+                        }
+                    } else if settings.touch_negative {
+                        settings.probe_radius_mm
+                    } else {
+                        -settings.probe_radius_mm
+                    };
                     let command = format!("G10 L20 P{p} {axis}{coordinate:.3}");
-                    if dialect == crate::gcode::generator::Dialect::Grbl { if let Some(machine) = &app.machine { machine.send_line(command); } }
-                    match settings.touch_axis { ProbeAxis::X => app.project.setup.work_origin_mm[0] = position[0] - coordinate, ProbeAxis::Y => app.project.setup.work_origin_mm[1] = position[1] - coordinate, ProbeAxis::Z => app.project.setup.work_origin_mm[2] = position[2] - coordinate }
+                    if dialect == crate::gcode::generator::Dialect::Grbl {
+                        if let Some(machine) = &app.machine {
+                            machine.send_line(command);
+                        }
+                    }
+                    match settings.touch_axis {
+                        ProbeAxis::X => {
+                            app.project.setup.work_origin_mm[0] = position[0] - coordinate
+                        }
+                        ProbeAxis::Y => {
+                            app.project.setup.work_origin_mm[1] = position[1] - coordinate
+                        }
+                        ProbeAxis::Z => {
+                            app.project.setup.work_origin_mm[2] = position[2] - coordinate
+                        }
+                    }
                     app.ui_state.project_dirty = true;
-                    app.ui_state.console_log.push("Applied probe result to active controller work offset and project setup".into());
+                    app.ui_state.console_log.push(
+                        "Applied probe result to active controller work offset and project setup"
+                            .into(),
+                    );
                 }
             }
             ui.separator();
-            ui.heading("3D surface map");
-            for (label, values) in [("XY minimum", &mut settings.grid_min_xy), ("XY maximum", &mut settings.grid_max_xy)] {
-                ui.horizontal(|ui| { ui.label(label); for (axis, value) in ["X", "Y"].into_iter().zip(values.iter_mut()) { ui.add(egui::DragValue::new(value).speed(0.5).prefix(format!("{axis} "))); } });
-            }
-            ui.add(egui::DragValue::new(&mut settings.grid_spacing_mm).speed(0.5).range(0.1..=500.0).prefix("Grid spacing (mm): "));
-            ui.add(egui::DragValue::new(&mut settings.max_grid_points).range(4..=10000).prefix("Point limit: "));
-            match settings.grid_points() { Ok(points) => { ui.label(format!("{} points", points.len())); }, Err(e) => { error = Some(e); } }
-            if dialect == crate::gcode::generator::Dialect::Grbl {
-                if ui.add_enabled(machine_ready && app.ui_state.probing_motion_confirmed && grid_validation.is_ok(), egui::Button::new("Run GRBL surface map" )).clicked() {
-                    let points = match settings.grid_points() { Ok(p) => p, Err(e) => { error = Some(e); Vec::new() } };
-                    if !points.is_empty() {
-                        let safe_z = app.project.setup.stock_origin_mm[2] + app.project.setup.stock_size_mm[2] + app.project.setup.clearance_mm;
-                        let mut lines = vec![format!("G90 G0 Z{safe_z:.3}")];
-                        for [x,y] in points {
-                            lines.push(format!("G90 G0 X{x:.3} Y{y:.3}"));
-                            lines.push(format!("G91 G38.2 Z-{:.3} F{:.3}", settings.max_travel_mm, settings.feed_mm_min));
-                            lines.push("G90".into());
-                            lines.push(format!("G0 Z{safe_z:.3}"));
+            egui::CollapsingHeader::new("3D surface map")
+                .default_open(false)
+                .show(ui, |ui| {
+                    for (label, values) in [
+                        ("XY minimum", &mut settings.grid_min_xy),
+                        ("XY maximum", &mut settings.grid_max_xy),
+                    ] {
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            for (axis, value) in ["X", "Y"].into_iter().zip(values.iter_mut()) {
+                                ui.add(
+                                    egui::DragValue::new(value)
+                                        .speed(0.5)
+                                        .prefix(format!("{axis} ")),
+                                );
+                            }
+                        });
+                    }
+                    ui.add(
+                        egui::DragValue::new(&mut settings.grid_spacing_mm)
+                            .speed(0.5)
+                            .range(0.1..=500.0)
+                            .prefix("Grid spacing (mm): "),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut settings.max_grid_points)
+                            .range(4..=10000)
+                            .prefix("Point limit: "),
+                    );
+                    match settings.grid_points() {
+                        Ok(points) => {
+                            ui.label(format!("{} points", points.len()));
                         }
-                        if let Some(machine) = &app.machine {
-                            app.ui_state.probe_capture_points.clear();
-                            app.ui_state.active_probe_settings = Some(settings.clone());
-                            app.ui_state.probing_motion_confirmed = false;
-                            machine.stream(&lines.join("\n"));
-                            app.ui_state.status_message = "Running GRBL surface probe map".into();
+                        Err(e) => {
+                            error = Some(e);
                         }
                     }
-                }
-            }
-            if ui.button("Export LinuxCNC surface-map program…").clicked() {
-                match grid_validation.clone().and_then(|_| linuxcnc_surface_program(settings)) { Ok(program) => if let Some(path) = rfd::FileDialog::new().set_file_name("tekkcam-surface-map.ngc").save_file() { if let Err(e) = std::fs::write(path, program) { error = Some(e.to_string()); } }, Err(e) => error = Some(e) }
-            }
-            if ui.button("Import LinuxCNC probe-results.txt…").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    match std::fs::read_to_string(path) {
-                        Ok(content) => {
-                            let points: Vec<[f64;3]> = content.lines().filter_map(|line| {
-                                let values: Vec<f64> = line.split(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == '+')).filter(|s| !s.is_empty()).filter_map(|s| s.parse().ok()).collect();
-                                (values.len() >= 3).then(|| [values[0], values[1], values[2]])
-                            }).collect();
-                            match settings.grid_points() {
-                                Ok(grid) if grid.len() == points.len() && points.iter().flatten().all(|v| v.is_finite()) => {
-                                    app.project.surface_map = Some(SurfaceMap { settings: settings.clone(), points });
-                                    app.ui_state.project_dirty = true;
+                    if dialect == crate::gcode::generator::Dialect::Grbl {
+                        if ui
+                            .add_enabled(
+                                machine_ready && grid_validation.is_ok(),
+                                egui::Button::new("Run GRBL surface map…"),
+                            )
+                            .clicked()
+                        {
+                            app.ui_state.pending_probe_confirmation = Some(true);
+                        }
+                    }
+                    if ui.button("Export LinuxCNC surface-map program…").clicked() {
+                        match grid_validation
+                            .clone()
+                            .and_then(|_| linuxcnc_surface_program(settings))
+                        {
+                            Ok(program) => {
+                                if let Some(path) = rfd::FileDialog::new()
+                                    .set_file_name("tekkcam-surface-map.ngc")
+                                    .save_file()
+                                {
+                                    if let Err(e) = std::fs::write(path, program) {
+                                        error = Some(e.to_string());
+                                    }
                                 }
-                                Ok(grid) => error = Some(format!("Imported {} valid points; expected {} grid points", points.len(), grid.len())),
-                                Err(e) => error = Some(e),
+                            }
+                            Err(e) => error = Some(e),
+                        }
+                    }
+                    if ui.button("Import LinuxCNC probe-results.txt…").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            match std::fs::read_to_string(path) {
+                                Ok(content) => {
+                                    let points: Vec<[f64; 3]> = content
+                                        .lines()
+                                        .filter_map(|line| {
+                                            let values: Vec<f64> = line
+                                                .split(|c: char| {
+                                                    !(c.is_ascii_digit()
+                                                        || c == '.'
+                                                        || c == '-'
+                                                        || c == '+')
+                                                })
+                                                .filter(|s| !s.is_empty())
+                                                .filter_map(|s| s.parse().ok())
+                                                .collect();
+                                            (values.len() >= 3)
+                                                .then(|| [values[0], values[1], values[2]])
+                                        })
+                                        .collect();
+                                    match settings.grid_points() {
+                                        Ok(grid)
+                                            if grid.len() == points.len()
+                                                && points
+                                                    .iter()
+                                                    .flatten()
+                                                    .all(|v| v.is_finite()) =>
+                                        {
+                                            app.project.surface_map = Some(SurfaceMap {
+                                                settings: settings.clone(),
+                                                points,
+                                            });
+                                            app.ui_state.project_dirty = true;
+                                        }
+                                        Ok(grid) => {
+                                            error = Some(format!(
+                                                "Imported {} valid points; expected {} grid points",
+                                                points.len(),
+                                                grid.len()
+                                            ))
+                                        }
+                                        Err(e) => error = Some(e),
+                                    }
+                                }
+                                Err(e) => error = Some(e.to_string()),
                             }
                         }
-                        Err(e) => error = Some(e.to_string()),
                     }
-                }
-            }
-            if let Some(map) = &app.project.surface_map {
-                ui.label(format!("Saved map: {} points", map.points.len()));
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(300.0, 180.0), egui::Sense::hover());
-                ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(28));
-                ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(1.0_f32, egui::Color32::GRAY), egui::StrokeKind::Inside);
-                if let (Some(min_z), Some(max_z)) = (map.points.iter().map(|p| p[2]).reduce(f64::min), map.points.iter().map(|p| p[2]).reduce(f64::max)) {
-                    let dx = (map.settings.grid_max_xy[0] - map.settings.grid_min_xy[0]).max(f64::EPSILON);
-                    let dy = (map.settings.grid_max_xy[1] - map.settings.grid_min_xy[1]).max(f64::EPSILON);
-                    for point in &map.points {
-                        let px = rect.left() + ((point[0] - map.settings.grid_min_xy[0]) / dx) as f32 * rect.width();
-                        let py = rect.bottom() - ((point[1] - map.settings.grid_min_xy[1]) / dy) as f32 * rect.height();
-                        let t = if max_z > min_z { ((point[2] - min_z) / (max_z - min_z)) as f32 } else { 0.5 };
-                        let color = egui::Color32::from_rgb((50.0 + 190.0*t) as u8, (180.0 - 120.0*t) as u8, (240.0 - 190.0*t) as u8);
-                        ui.painter().circle_filled(egui::pos2(px, py), 4.0, color);
+                    if let Some(map) = &app.project.surface_map {
+                        ui.label(format!("Saved map: {} points", map.points.len()));
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(300.0, 180.0), egui::Sense::hover());
+                        ui.painter()
+                            .rect_filled(rect, 4.0, egui::Color32::from_gray(28));
+                        ui.painter().rect_stroke(
+                            rect,
+                            4.0,
+                            egui::Stroke::new(1.0_f32, egui::Color32::GRAY),
+                            egui::StrokeKind::Inside,
+                        );
+                        if let (Some(min_z), Some(max_z)) = (
+                            map.points.iter().map(|p| p[2]).reduce(f64::min),
+                            map.points.iter().map(|p| p[2]).reduce(f64::max),
+                        ) {
+                            let dx = (map.settings.grid_max_xy[0] - map.settings.grid_min_xy[0])
+                                .max(f64::EPSILON);
+                            let dy = (map.settings.grid_max_xy[1] - map.settings.grid_min_xy[1])
+                                .max(f64::EPSILON);
+                            for point in &map.points {
+                                let px = rect.left()
+                                    + ((point[0] - map.settings.grid_min_xy[0]) / dx) as f32
+                                        * rect.width();
+                                let py = rect.bottom()
+                                    - ((point[1] - map.settings.grid_min_xy[1]) / dy) as f32
+                                        * rect.height();
+                                let t = if max_z > min_z {
+                                    ((point[2] - min_z) / (max_z - min_z)) as f32
+                                } else {
+                                    0.5
+                                };
+                                let color = egui::Color32::from_rgb(
+                                    (50.0 + 190.0 * t) as u8,
+                                    (180.0 - 120.0 * t) as u8,
+                                    (240.0 - 190.0 * t) as u8,
+                                );
+                                ui.painter().circle_filled(egui::pos2(px, py), 4.0, color);
+                            }
+                        }
+                        if ui
+                            .checkbox(
+                                &mut app.project.surface_compensation_enabled,
+                                "Compensate generated toolpaths using this map",
+                            )
+                            .changed()
+                        {
+                            app.ui_state.project_dirty = true;
+                        }
+                        if ui.button("Clear saved surface map").clicked() {
+                            app.project.surface_map = None;
+                            app.project.surface_compensation_enabled = false;
+                            app.ui_state.project_dirty = true;
+                        }
                     }
-                }
-                if ui.checkbox(&mut app.project.surface_compensation_enabled, "Compensate generated toolpaths using this map").changed() { app.ui_state.project_dirty = true; }
-                if ui.button("Clear saved surface map").clicked() { app.project.surface_map = None; app.project.surface_compensation_enabled = false; app.ui_state.project_dirty = true; }
+                });
+            if let Some(error) = &error {
+                ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
-            if let Some(error) = &error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
         });
     if !open {
         app.ui_state.show_probing_dialog = false;
+    }
+    if let Some(surface_map) = app.ui_state.pending_probe_confirmation {
+        let mut confirm_open = true;
+        egui::Window::new("Confirm probe motion")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut confirm_open)
+            .show(ctx, |ui| {
+                ui.label("Probe motion will move the machine.");
+                ui.label("Check probe wiring, starting position, clearance, and feed.");
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(if surface_map {
+                            "Run surface map"
+                        } else {
+                            "Start probe"
+                        })
+                        .clicked()
+                    {
+                        let settings = &app.project.probing;
+                        if let Some(machine) = &app.machine {
+                            if surface_map {
+                                match settings.grid_points() {
+                                    Ok(points) if !points.is_empty() => {
+                                        let safe_z = app.project.setup.stock_origin_mm[2]
+                                            + app.project.setup.stock_size_mm[2]
+                                            + app.project.setup.clearance_mm;
+                                        let mut lines = vec![format!("G90 G0 Z{safe_z:.3}")];
+                                        for [x, y] in points {
+                                            lines.push(format!("G90 G0 X{x:.3} Y{y:.3}"));
+                                            lines.push(format!(
+                                                "G91 G38.2 Z-{:.3} F{:.3}",
+                                                settings.max_travel_mm, settings.feed_mm_min
+                                            ));
+                                            lines.push("G90".into());
+                                            lines.push(format!("G0 Z{safe_z:.3}"));
+                                        }
+                                        app.ui_state.probe_capture_points.clear();
+                                        app.ui_state.active_probe_settings = Some(settings.clone());
+                                        machine.stream(&lines.join("\n"));
+                                        app.ui_state.status_message =
+                                            "Running GRBL surface probe map".into();
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => error = Some(e),
+                                }
+                            } else {
+                                let direction = if settings.touch_negative { -1.0 } else { 1.0 };
+                                match settings.validate().and_then(|_| {
+                                    grbl_probe_command(
+                                        settings.touch_axis,
+                                        direction * settings.max_travel_mm,
+                                        settings.feed_mm_min,
+                                    )
+                                }) {
+                                    Ok(command) => {
+                                        machine.send_line(command);
+                                        app.ui_state.last_probe_result = None;
+                                        app.ui_state.status_message =
+                                            "Probing; machine motion active".into();
+                                    }
+                                    Err(e) => error = Some(e),
+                                }
+                            }
+                        }
+                        app.ui_state.pending_probe_confirmation = None;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        app.ui_state.pending_probe_confirmation = None;
+                    }
+                });
+            });
+        if !confirm_open {
+            app.ui_state.pending_probe_confirmation = None;
+        }
     }
 }
 
