@@ -41,6 +41,6 @@ Artifacts are written to `dist/`. Cargo Packager is currently in public preview;
 
 ## Publishing a release
 
-Push a version tag matching the version in `Cargo.toml` and `Packager.toml`, for example `v0.1.4`. The workflow builds platform packages and attaches them to the GitHub release for that tag. Running the workflow manually builds downloadable workflow artifacts without publishing a release.
+Push a version tag matching the version in `Cargo.toml` and `Packager.toml`, for example `v0.1.5`. The workflow builds platform packages and attaches them to the GitHub release for that tag. Running the workflow manually builds downloadable workflow artifacts without publishing a release.
 
 These packages are currently unsigned. Before distributing production releases broadly, configure Windows code-signing credentials and an Apple Developer ID certificate plus notarization credentials in GitHub Actions secrets. Apple requires Developer ID signing and notarization for third-party macOS apps to pass the normal Gatekeeper flow. Linux package dependencies and the Linux serial-device instructions should also be validated on the supported distributions before release.
